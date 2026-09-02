@@ -140,7 +140,7 @@ export function buildInvoiceDefinition(data: InvoicePdfData): TDocumentDefinitio
     defaultStyle: { font: 'Commissioner', fontSize: 10, color: '#1a1a1a' },
 
     content: [
-      ...buildPdfHeader({ logoUrl: data.logoUrl, businessName: data.businessName, email: data.email }, data.brandColour),
+      ...buildPdfHeader({ logoUrl: data.logoUrl, businessName: data.businessName, email: data.email, address: data.address, vatNumber: data.vatNumber }, data.brandColour),
       buildDocumentTitle(invoiceTypeLabel),
       { columns: [{ text: '' }, { stack: metaRows, alignment: 'right' }], margin: [0, 0, 0, 12] },
       { text: 'Bill to', style: 'sectionLabel', margin: [0, 0, 0, 4] },

@@ -5,6 +5,9 @@ export interface PdfHeaderData {
   businessName: string;
   email?: string | null;
   phone?: string | null;
+  /** Newline-separated address lines. Rendered one line per row under the contact details. */
+  address?: string | null;
+  vatNumber?: string | null;
 }
 
 export function buildPdfHeader(data: PdfHeaderData, brandColour: string): Content[] {
@@ -12,10 +15,17 @@ export function buildPdfHeader(data: PdfHeaderData, brandColour: string): Conten
     ? { image: data.logoUrl, width: 120, fit: [120, 40] }
     : { text: data.businessName, style: 'headerBusinessName' };
 
+  const addressLines: Content[] = (data.address ?? '')
+    .split('\n')
+    .filter(Boolean)
+    .map((line): Content => ({ text: line, style: 'headerMuted' }));
+
   const businessInfoStack: Content[] = [
     ...(data.businessName && !data.logoUrl ? [{ text: data.businessName, style: 'headerBusinessName' }] : []),
     ...(data.email ? [{ text: data.email, style: 'headerMuted' }] : []),
     ...(data.phone ? [{ text: data.phone, style: 'headerMuted' }] : []),
+    ...addressLines,
+    ...(data.vatNumber ? [{ text: `VAT: ${data.vatNumber}`, style: 'headerMuted' }] : []),
   ];
 
   return [
