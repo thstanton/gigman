@@ -57,4 +57,8 @@ ready-for-agent  ──loop completes slice──▶  ready-for-review  ──hu
 
 ## `in-progress` — the fleet's claim token (see `fleet.md`)
 
-Used by concurrent **interactive** sessions, not the loop. A claim is: label `ready-for-agent` → `in-progress` **+** self-assign **+** a comment naming the branch and worktree. The label drops off when the PR merges and the issue closes (or when a human un-claims a stale one by reverting the label). The set of `in-progress` issues *is* the in-flight map — sessions read it to enforce surface-disjointness and the WIP cap before starting work.
+Used by concurrent **interactive** sessions, not the loop. A claim is: label `ready-for-agent` → `in-progress` **+** self-assign **+** a comment naming the branch and worktree. A claim ends when the issue closes; a human un-claims a stale one by reverting the label to `ready-for-agent`.
+
+The in-flight map is the set of **open** issues labelled `in-progress` — that is what sessions read to enforce surface-disjointness and the WIP cap, and what `claimability.sh` queries (`gh issue list --label in-progress --state open`).
+
+**Nothing removes the label when an issue closes, and nothing needs to.** Closing ends the claim on its own, and the `--state open` filter means a closed issue's leftover label can never occupy a surface or a WIP slot. Treat it as a historical record that the issue was once claimed — there is no cleanup step to add and no backlog to sweep.
