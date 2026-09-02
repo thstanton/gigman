@@ -34,3 +34,12 @@ export const WithCustomFallback: Story = {
     fallback: <div>Custom error UI</div>,
   },
 };
+
+export const PortalVariant: Story = {
+  args: { children: <Bomb />, variant: 'portal' },
+  play: async ({ canvas }) => {
+    await expect(canvas.getByText('Something went wrong')).toBeVisible();
+    await expect(canvas.queryByText('Test explosion')).not.toBeInTheDocument();
+    await expect(canvas.getByRole('button', { name: /try again/i })).toBeVisible();
+  },
+};
