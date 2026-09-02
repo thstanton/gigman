@@ -133,3 +133,34 @@ describe('balance invoice deposit deduction', () => {
     expect(texts).toContain('£1500.00'); // full total due, no deduction
   });
 });
+
+// The letterhead is assembled by the shared buildPdfHeader, so a field can be present on
+// InvoicePdfData, computed by the service, and still never reach the page if the call site stops
+// passing it — which is exactly how the business address and VAT number were silently dropped in the
+// PDF redesign (0e170b6). These assert the rendered rows, not the call signature.
+describe('invoice letterhead', () => {
+  const withLetterhead: InvoicePdfData = {
+    ...invoiceData,
+    address: '12 Example Street\nSuite 4\nLondon\nSW1A 1AA',
+    vatNumber: 'GB123456789',
+  };
+
+  it('renders every business address line', () => {
+    const texts = collectText(buildInvoiceDefinition(withLetterhead).content);
+    expect(texts).toContain('12 Example Street');
+    expect(texts).toContain('Suite 4');
+    expect(texts).toContain('London');
+    expect(texts).toContain('SW1A 1AA');
+  });
+
+  it('renders the VAT registration number', () => {
+    const texts = collectText(buildInvoiceDefinition(withLetterhead).content);
+    expect(texts).toContain('VAT: GB123456789');
+  });
+
+  it('omits both rows when the profile has neither', () => {
+    const texts = collectText(buildInvoiceDefinition(invoiceData).content);
+    expect(texts).not.toContain('12 Example Street');
+    expect(texts.some((t) => t.startsWith('VAT: '))).toBe(false);
+  });
+});
