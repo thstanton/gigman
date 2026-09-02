@@ -1,7 +1,7 @@
 # ADR-0054 — Portal visibility is computed by a single authority, consumed by both the portal and the admin indicator
 
 ## Status
-Accepted (2026-06-22; amended 2026-06-24 — final indicator treatment + a second companion fix for the cancelled-booking contract leak; amended 2026-08-18 — visibility gains an *audience* gate alongside its state gate, so a series invoice document is never portal-visible through a member booking's portal; see below; **amended 2026-08-19** — the authority gains an `audience: CLIENT | BAND` parameter, answering the question the 2026-08-18 amendment deliberately left open; see [ADR-0073](0073-band-portal-visibility-and-projection.md)). Builds on [ADR-0021](0021-contract-portal-visibility-driven-by-status.md) (contract visibility driven by status), [ADR-0031](0031-portal-visibility-driven-by-source-truth.md) (portal visibility driven by source truth, not checklist state), and [ADR-0042](0042-invoice-issued-state-decouple-issue-from-send.md) (invoice `Issued` vs `Sent`). Anticipates #533 (music-form draft/Published). Sliced into issues #578 (core), #579 (leak fixes), #580 (per-document rows).
+Accepted (2026-06-22; amended 2026-06-24 — final indicator treatment + a second companion fix for the cancelled-booking contract leak; amended 2026-07-02 — the music-form draft/published model ships, closing the gap this ADR reserved for #533; see below; amended 2026-08-18 — visibility gains an *audience* gate alongside its state gate, so a series invoice document is never portal-visible through a member booking's portal; see below; **amended 2026-08-19** — the authority gains an `audience: CLIENT | BAND` parameter, answering the question the 2026-08-18 amendment deliberately left open; see [ADR-0073](0073-band-portal-visibility-and-projection.md)). Builds on [ADR-0021](0021-contract-portal-visibility-driven-by-status.md) (contract visibility driven by status), [ADR-0031](0031-portal-visibility-driven-by-source-truth.md) (portal visibility driven by source truth, not checklist state), and [ADR-0042](0042-invoice-issued-state-decouple-issue-from-send.md) (invoice `Issued` vs `Sent`). Sliced into issues #578 (core), #579 (leak fixes), #580 (per-document rows).
 
 ## Context
 
@@ -43,8 +43,9 @@ This is also consistent with where ADR-0031 pointed: its "future direction" anti
 | Contract | DRAFT | Not visible until sent |
 | Contract | SENT / SIGNED | Visible on Client Portal |
 | Contract | VOID | Not visible — voided |
-| Music form | on (config exists) | Visible on Client Portal |
-| Music form | off | (no indicator) |
+| Music form | published (config exists, `publishedAt` set) | Visible on Client Portal |
+| Music form | draft (config exists, `publishedAt` null) | Not visible until published |
+| Music form | off (no config) | (no indicator) |
 | INVOICE doc | Sent / Paid | Visible on Client Portal |
 | INVOICE doc | Issued (unsent) | Not visible until sent |
 | INVOICE doc | Void | Not visible — voided |
@@ -71,7 +72,7 @@ Consolidating the scattered rules surfaces two pre-existing leaks. Both are deli
 ## Consequences
 
 - **Legibility without coupling.** The musician sees portal state at a glance; the checklist↔portal coupling ADR-0031 rejected is not reintroduced (the indicator reads source truth, not checklist state).
-- **#533 lands in one place.** When the music-form draft/Published model arrives, only the authority's music-form gate changes; both the portal and the indicator update with **no #534 rework**. Until then the music-form indicator only ever reads "Visible" — a thin signal that is itself a standing reminder the gap is unaddressed.
+- **#533 lands in one place.** The music-form draft/published model (amendment below) changed only the authority's music-form gate; both the portal and the indicator picked it up with **no #534 rework** — the seam this ADR predicted, exercised.
 - **Two pre-existing leaks are closed** — UPLOAD documents, and the cancelled-booking contract (a client could previously sign a cancelled gig's contract).
 - **The hidden state is a quiet hint, not a badge.** The earlier worry that flagging hidden concerns adds chrome is resolved by making the hidden state deliberately subordinate (muted `EyeOff` + short "Not visible …") while only the *visible* state is a prominent badge. This keeps the predictive "until sent" value at low visual cost. A faithful per-booking portal *preview* (#531) remains the complementary "see exactly" answer to this indicator's "know at a glance".
 
@@ -79,10 +80,30 @@ Consolidating the scattered rules surfaces two pre-existing leaks. Both are deli
 
 - **Re-derive visibility in each admin card.** Cheapest; guarantees divergence from the portal renderer the first time a rule changes. Rejected — it re-scatters the very logic #534 exists to consolidate.
 - **Admin reads the portal endpoint (`?preview=admin`) for truth.** Conceptually one source, but couples the admin detail page to the portal token/endpoint and returns client-shaped data the admin UI must re-map. Awkward; rejected.
-- **Three-state lifecycle (Not started / Prepared-not-shared / Visible) on every concern.** Over-modelled — most concerns are genuinely binary; the only real "prepared but not shared" state is the music form, and only once #533 lands. The positive-badge-plus-muted-hint shape carries that nuance in the hint string instead.
+- **Three-state lifecycle (Not started / Prepared-not-shared / Visible) on every concern.** Over-modelled — most concerns are genuinely binary; the only real "prepared but not shared" state is the music form (see the #533 amendment below). The positive-badge-plus-muted-hint shape carries that nuance in the hint string instead.
 - **Visible-only badge (no hidden hint at all).** Considered: drop the hidden state entirely so absence-of-badge means "not visible". Rejected because it loses the predictive "until sent" value — a `DRAFT` contract would look identical to a non-portal concern — and weakens the "is my agent contract visible?!" reassurance. The muted hint restores both at low chrome cost.
 
 ---
+
+## Amendment (2026-07-02) — music-form draft → published (#533)
+
+Reverses the earlier decision (CONTEXT's `MusicFormConfig` entry) that a turned-on form is *"independent of the send-invite action — the form may be on before the invite is sent"* and visible the instant it exists (`hasMusicForm = !!musicFormConfig`).
+
+**The problem.** `Save` *was* `publish`: turning the form on made it immediately client-visible, so a freshly-seeded, default, mid-edit form was already fillable by the client. There was no draft period in which the musician could prepare it privately — the one concern in the app without a prepare-then-publish flow (contrast contracts, invisible until `SENT`, and invoices, invisible until `Sent`).
+
+**The model — mirrors invoices.** `MusicFormConfig` gains a nullable `publishedAt`. Three states: **Off** (no config → no portal concern, no indicator), **Draft** (`publishedAt` null → hidden, indicator "Not visible until published"), **Published** (`publishedAt` set → visible). New forms are **draft by default**. Publishing is a **soft, reversible** act (draft ⇄ published at any time; edits stay live once published — no content lock, unlike a committed invoice).
+
+**Send is gated on publish, not the reverse.** Publish is a prerequisite for sending the invite — mirroring the invoice ordering (you can no more email an invite for an unpublished form than `Send` an un-`Issued` invoice). The `gather_song_requests` [[Goal]] carries the order: `set_up_and_publish` (MILESTONE, auto-completes on `publishedAt` being set; reverts on un-publish) → `add_email_music` (PRECONDITION, gates only the invite step, not publication — publishing needs no client email) → `music_form_invite` → `song_requests`.
+
+**One gate, two enforcement points.** Publication is enforced at the checklist/UI (the invite step isn't actionable, and the Send-Email dialog disables the `music_form_invite` template, until published) **and** at the API — sending a `music_form_invite` communication for an unpublished form is rejected. The portal's music-form data and submission endpoints (`getMusicFormData`, `POST /booking/:token/music`) gate on published too, not just the link — a token holder cannot fetch or submit a draft form directly. Same class of leak as the cancelled-contract fix above: the render gate and the action gate must agree.
+
+**Authority change is the whole backend surface.** `resolveMusicFormVisibility(hasConfig, isPublished)` gains its middle branch → reason code `until_published` (copy: "Not visible until published", mirroring the contract's "until sent"). Both consumers (the portal's `hasMusicForm` and the admin indicator) pass `config?.publishedAt != null`; nothing else in the visibility logic moves — the seam this ADR promised.
+
+**UI.** The music-form config sheet gets Save draft / Publish actions (the invoice sheet pattern); on publish, the send-invite email sheet opens automatically (mirroring invoice issue → send chaining).
+
+**Migration.** Existing `MusicFormConfig` rows were backfilled `publishedAt = createdAt` inside the run-once Prisma migration, so already-visible forms stayed visible — no client saw the form vanish. Only forms created after deploy started draft.
+
+**Why still one ADR, not a new one.** The draft/published shape is a genuine reversal, but it lands entirely inside the authority this ADR established and exercises the seam this ADR predicted ("#533 lands in one place"). Amending keeps the visibility story in one file; ADR-0031's source-truth principle is extended (visibility = published state), not overturned.
 
 ## Amendment (2026-08-18) — a document's audience, not just its state
 
