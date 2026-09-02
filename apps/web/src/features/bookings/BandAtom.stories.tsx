@@ -174,13 +174,24 @@ export const AllPartsFilled: Story = {
 export const NoLineupYet: Story = {
   name: '5. Booking has packages but no band — empty state offers the two writes, and no "Decide later"',
   args: { lineups: [], chairs: [], members: [] },
-  play: async ({ canvasElement }) => {
+  play: async ({ canvasElement, args }) => {
     const canvas = within(canvasElement);
     await expect(canvas.getByText('No band yet')).toBeVisible();
     await expect(canvas.getByRole('button', { name: 'Add a lineup' })).toBeVisible();
-    await expect(canvas.getByRole('button', { name: 'Add a part' })).toBeVisible();
     // #983's first ruling: opening this sheet IS "later", so nothing here writes nothing.
     await expect(canvas.queryByText(/decide later/i)).not.toBeInTheDocument();
+
+    // "Add a part" must ASK for the role. It used to add one called "Vocals" the musician never
+    // named — the empty state hardcoded it while the card's own footer prompted properly.
+    await userEvent.click(canvas.getByRole('button', { name: 'Add a part' }));
+    // `getByLabelText`, not `getByRole('textbox')`: the role field carries a `list` for the
+    // instrument type-ahead, which gives the input an implicit combobox role.
+    await expect(canvas.getByLabelText('Part')).toBeVisible();
+    await expect(args.onAddChair).not.toHaveBeenCalled();
+
+    await userEvent.type(canvas.getByLabelText('Part'), 'Saxophone');
+    await userEvent.click(canvas.getByRole('button', { name: 'Add part' }));
+    await expect(args.onAddChair).toHaveBeenCalledWith('Saxophone', null);
   },
 };
 
@@ -311,5 +322,52 @@ export const LineupLosesASegment: Story = {
 
     await userEvent.click(dialog.getByRole('button', { name: 'Save' }));
     await expect(args.onSetLineupSegments).toHaveBeenCalledWith('lu-1', [EVENING]);
+  },
+};
+
+// ── Regression cover, found in review ────────────────────────────────────────
+
+// Applying a lineup DELETES the band it displaces, with its parts and their confirmations. The
+// segment selection defaults to every set, so the default choice on a booking that already has a
+// band is the destructive one — and it warned about nothing. Journey ④, which destroys nothing,
+// warned prominently; the safe operation shouted and the destructive one was silent.
+export const ApplyWouldSweepAnExistingBand: Story = {
+  name: 'Adding a lineup over a band that already plays those sets says whose seats it takes',
+  args: {
+    lineups: [{ id: 'lu-1', label: 'My four-piece', packageIds: [DRINKS, EVENING] }],
+    chairs: fourPieceChairs('lu-1', ['m-sam', 'm-ana', null, null]),
+    members: [sam, ana],
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(canvas.getByRole('button', { name: 'Add a lineup' }));
+
+    const dialog = within(await screen.findByRole('dialog'));
+    // Both sets are selected by default, so the four-piece would be swept.
+    await expect(dialog.getByText('This replaces My four-piece.')).toBeVisible();
+    await expect(
+      dialog.getByText(/Sam Okonkwo, Ana Reis lose their parts and their confirmation\./),
+    ).toBeVisible();
+
+    // Untick one set and the four-piece survives — so the warning goes.
+    await userEvent.click(dialog.getByRole('button', { name: /Evening Party/ }));
+    await expect(dialog.queryByText('This replaces My four-piece.')).not.toBeInTheDocument();
+  },
+};
+
+// A member holding no parts is not a player. Emptying someone's last part used to drop them from
+// this card while leaving them on the Info tab as an unlabelled chip, with no way to clear them
+// (#987 removed the per-person remove). One rule, `rendersAsPlayer`, now governs both surfaces.
+export const MemberWithNoPartsIsNotAPlayer: Story = {
+  name: 'Someone holding no parts does not render as a player — unless they are you',
+  args: {
+    lineups: [{ id: 'lu-1', label: 'My four-piece', packageIds: [DRINKS] }],
+    chairs: fourPieceChairs('lu-1', ['m-sam', null, null, null]),
+    members: [sam, ana],
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByText('Sam Okonkwo')).toBeVisible();
+    await expect(canvas.queryByText('Ana Reis')).not.toBeInTheDocument();
   },
 };

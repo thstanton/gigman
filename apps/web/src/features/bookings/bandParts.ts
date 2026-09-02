@@ -82,3 +82,40 @@ export function partCountLine(parts: BookingBandChair[]): string {
 export function shouldNameBand(lineups: BookingLineup[]): boolean {
   return lineups.length > 1;
 }
+
+/**
+ * Who renders as a player: anyone holding at least one part, **or** the musician themself.
+ *
+ * `Players` is purely derived (#983) — someone leaves by coming out of every part, and their row
+ * goes with the last one. `isSelf` is the deliberate exception: ADR-0072 §3 marks the musician on
+ * the booking whether or not they fill a part, and `BandCard` has shown that all along.
+ *
+ * Declared here because BOTH surfaces must obey it. When only the sheet filtered, emptying
+ * someone's last part made them vanish from the sheet while persisting on the Info tab as an
+ * unlabelled chip — and with no per-person remove there was then no way to clear them anywhere.
+ */
+export function rendersAsPlayer(member: { id: string; isSelf: boolean }, chairs: BookingBandChair[]): boolean {
+  return member.isSelf || chairs.some((c) => c.memberId === member.id);
+}
+
+/**
+ * The Lineups an apply targeting `packageIds` would sweep away entirely — mirrors the server's
+ * `displaceSegments`: a band is displaced when every segment it played was targeted, and on a
+ * booking with no packages the single link-less bucket is what an empty target displaces.
+ *
+ * The apply path genuinely deletes chairs, members' seats and their confirmations, so the musician
+ * has to be told before it happens. Journey ④ — which touches links only and destroys nothing —
+ * already warns; without this, the *safe* operation warned and the destructive one did not.
+ */
+export function lineupsDisplacedBy(
+  lineups: BookingLineup[],
+  packages: BookingPackageSummary[],
+  packageIds: string[],
+): BookingLineup[] {
+  if (!packageIds.length) {
+    return packages.length ? [] : lineups.filter((l) => l.packageIds.length === 0);
+  }
+  return lineups.filter(
+    (l) => l.packageIds.length > 0 && l.packageIds.every((id) => packageIds.includes(id)),
+  );
+}

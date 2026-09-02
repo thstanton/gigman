@@ -31,8 +31,12 @@ interface PartsToFillCardProps {
   removingPartId: string | null;
 }
 
-/** `+ Add a part` and its inline form. Split out of the card so each stays one readable thing. */
-function AddPartFooter({
+/**
+ * `+ Add a part` and its inline form. Exported because BandAtom's empty state offers the same
+ * action: it must ASK for the role, not invent one — it previously added a part called "Vocals"
+ * the musician never named.
+ */
+export function AddPartFooter({
   lineups,
   instrumentVocabulary,
   onAddPart,

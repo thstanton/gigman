@@ -5,7 +5,7 @@ import { GhostButton } from '@/components/common/GhostButton';
 import { AddLineupDialog } from './AddLineupDialog';
 import { LineupSegmentsDialog } from './LineupSegmentsDialog';
 import { LineupsCard } from './LineupsCard';
-import { PartsToFillCard } from './PartsToFillCard';
+import { AddPartFooter, PartsToFillCard } from './PartsToFillCard';
 import { PlayersCard } from './PlayersCard';
 import type {
   BookingBandChair,
@@ -104,11 +104,14 @@ export function BandAtom({
           heading="No band yet"
           description="Add one of your saved lineups, or add parts one at a time."
           action={
-            <div className="flex items-center gap-4">
+            <div className="flex flex-col items-center gap-2">
               <GhostButton variant="primary" onClick={() => setAddingLineup(true)}>Add a lineup</GhostButton>
-              <GhostButton variant="primary" onClick={() => onAddChair('Vocals', null)} disabled={isAddingChair}>
-                {isAddingChair ? 'Adding…' : 'Add a part'}
-              </GhostButton>
+              <AddPartFooter
+                lineups={lineups}
+                instrumentVocabulary={instrumentVocabulary}
+                onAddPart={onAddChair}
+                isAddingPart={isAddingChair}
+              />
             </div>
           }
         />
@@ -117,6 +120,9 @@ export function BandAtom({
             lineupTemplates={lineupTemplates}
             lineupTemplatesLoading={lineupTemplatesLoading}
             packages={packages}
+            lineups={lineups}
+            chairs={chairs}
+            members={members}
             onApply={(id, packageIds) => { onApplyLineup(id, packageIds); setAddingLineup(false); }}
             isApplying={isApplyingLineup}
             onClose={() => setAddingLineup(false)}
@@ -169,6 +175,9 @@ export function BandAtom({
           lineupTemplates={lineupTemplates}
           lineupTemplatesLoading={lineupTemplatesLoading}
           packages={packages}
+          lineups={lineups}
+          chairs={chairs}
+          members={members}
           onApply={(id, packageIds) => { onApplyLineup(id, packageIds); setAddingLineup(false); }}
           isApplying={isApplyingLineup}
           onClose={() => setAddingLineup(false)}

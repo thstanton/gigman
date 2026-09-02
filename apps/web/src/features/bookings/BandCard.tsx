@@ -6,7 +6,7 @@ import { GhostButton } from '@/components/common/GhostButton';
 import { SubLabel } from '@/components/common/SubLabel';
 import { Badge } from '@/components/ui/badge';
 import PersonChip from './PersonChip';
-import { lineupName, shouldNameBand } from './bandParts';
+import { lineupName, rendersAsPlayer, shouldNameBand } from './bandParts';
 import {
   BAND_MEMBER_ANSWER_GROUP,
   BAND_MEMBER_ANSWER_GROUP_ORDER,
@@ -69,7 +69,12 @@ export default function BandCard({ band, hasLineupTemplates, linkState }: BandCa
     'Waiting on': [],
     'Still to sort': [],
   };
-  for (const member of band.members) groups[BAND_MEMBER_ANSWER_GROUP[member.status]].push(member);
+  // Same derived rule as the Band sheet's Players card (`rendersAsPlayer`). Without it, emptying
+  // someone's last part made them vanish from the sheet while persisting here as an unlabelled
+  // chip — and #987 removed the per-person remove, so there would be no way to clear them.
+  for (const member of band.members.filter((m) => rendersAsPlayer(m, band.chairs))) {
+    groups[BAND_MEMBER_ANSWER_GROUP[member.status]].push(member);
+  }
 
   const vacantChairs = band.chairs.filter((c) => c.memberId == null);
 

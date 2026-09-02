@@ -5,7 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { BandMemberStatusDropdown } from './BandMemberStatusDropdown';
 import InlineFeeAdd from './InlineFeeAdd';
 import { PartRow } from './PartRow';
-import { lineupName, shouldNameBand } from './bandParts';
+import { lineupName, rendersAsPlayer, shouldNameBand } from './bandParts';
 import type {
   BookingBandChair,
   BookingBandMember,
@@ -59,11 +59,11 @@ export function PlayersCard({
   // be there. The row survives server-side, so re-seating them restores one fee and one
   // confirmation rather than starting a second (ADR-0072 §2).
   const playing = members
+    .filter((member) => rendersAsPlayer(member, chairs))
     .map((member) => ({
       member,
       theirParts: chairs.filter((c) => c.memberId === member.id).sort((a, b) => a.order - b.order),
-    }))
-    .filter(({ theirParts }) => theirParts.length > 0);
+    }));
 
   if (playing.length === 0) return null;
 
