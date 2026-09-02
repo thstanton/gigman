@@ -10,8 +10,8 @@ import { DocumentsRepository } from './documents.repository';
 import { buildInvoiceDefinition, type InvoicePdfData } from './invoice-document';
 import { buildSongListDefinition, type SongListPdfData } from './song-list-document';
 import { renderTiptapToPdfmake } from '../mail/tiptap-pdfmake';
-import { decrypt } from '../common/crypto';
 import { buildDocumentTitle, buildPdfHeader, buildPdfFooter } from './pdf-shared';
+import { buildLetterhead } from './letterhead';
 import type { EmailContext } from '../mail/mail.service';
 import { substituteTiptapVariables } from '../mail/tiptap-substitute';
 import {
@@ -150,11 +150,6 @@ export class DocumentsService {
     return { url: await this.storage.getPresignedDownloadUrl(doc.storageKey) };
   }
 
-  private formatAddress(profile: { addressLine1: string | null; addressLine2: string | null; city: string | null; postcode: string | null } | null): string | null {
-    if (!profile) return null;
-    return [profile.addressLine1, profile.addressLine2, profile.city, profile.postcode].filter(Boolean).join('\n') || null;
-  }
-
   // The invoiced deposit for the balance PDF's "less deposit" deduction: the line-item total of the
   // booking's active (non-VOID) deposit invoice, or null when there is none (null gates the whole
   // deduction section off — see buildTotalsSection). Never derived from depositPercentage. A booking
@@ -203,15 +198,16 @@ export class DocumentsService {
       : null;
 
     const brandColour = (publicProfile.clientPortalConfig as { brandColour?: string } | null)?.brandColour ?? '#1a1a1a';
+    const letterhead = buildLetterhead(userProfile);
 
     return {
       businessName: publicProfile.businessName,
       musicianName: publicProfile.displayName ?? publicProfile.businessName,
       email: publicProfile.email ?? '',
-      address: this.formatAddress(userProfile),
-      bankDetails: userProfile?.bankDetails ? decrypt(userProfile.bankDetails) : null,
-      vatNumber: userProfile?.vatNumber ?? null,
-      vatRate: userProfile?.vatNumber ? (userProfile.vatRate ?? 20) : null,
+      address: letterhead.address,
+      bankDetails: letterhead.bankDetails,
+      vatNumber: letterhead.vatNumber,
+      vatRate: letterhead.vatRate,
       logoUrl: publicProfile.logoUrl ?? null,
       brandColour,
 
