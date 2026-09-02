@@ -12,6 +12,7 @@ import { ClerkProvider } from '@clerk/react';
 import { createBrowserRouter, RouterProvider } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
+import ErrorBoundary, { variantForPathname } from '@/components/ErrorBoundary';
 import HomePage from './pages/HomePage';
 import SignInPage from './pages/SignInPage';
 import SignUpPage from './pages/SignUpPage';
@@ -134,11 +135,26 @@ const router = createBrowserRouter([
   },
 ]);
 
+function RootErrorBoundary() {
+  const [variant, setVariant] = React.useState(() => variantForPathname(window.location.pathname));
+
+  React.useEffect(
+    () => router.subscribe((state) => setVariant(variantForPathname(state.location.pathname))),
+    [],
+  );
+
+  return (
+    <ErrorBoundary variant={variant}>
+      <RouterProvider router={router} />
+    </ErrorBoundary>
+  );
+}
+
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <ClerkProvider publishableKey={import.meta.env.VITE_CLERK_PUBLISHABLE_KEY} appearance={clerkAppearance}>
     <QueryClientProvider client={queryClient}>
       <React.StrictMode>
-        <RouterProvider router={router} />
+        <RootErrorBoundary />
       </React.StrictMode>
       <ReactQueryDevtools initialIsOpen={false} />
     </QueryClientProvider>
