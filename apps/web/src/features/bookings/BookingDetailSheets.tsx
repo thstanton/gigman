@@ -3,6 +3,7 @@ import { useAuth } from '@clerk/react';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
+import { MusicianDecoration } from '@/components/common/MusicianDecoration';
 import {
   ResponsiveDialog,
   ResponsiveDialogContent,
@@ -206,6 +207,11 @@ export function BookingDetailSheets({ bookingId }: BookingDetailSheetsProps) {
               <Button onClick={() => confirmStatusTransition(readyDialogStatus)} disabled={isConfirmingTransition}>
                 {isConfirmingTransition ? 'Saving…' : `Mark as ${BOOKING_STATUS_LABELS[readyDialogStatus]}`}
               </Button>
+            </div>
+            {/* Tailpiece (#858): the ornament that closes the movement. It sits below the
+                actions so they stay above the fold on mobile, where this is a bottom sheet. */}
+            <div className="mt-6">
+              <MusicianDecoration />
             </div>
           </ResponsiveDialogContent>
         </ResponsiveDialog>

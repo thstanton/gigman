@@ -6,6 +6,7 @@ import {
   CalendarPlus, UserPlus,
 } from 'lucide-react';
 import type { BookingBandMemberStatus, BookingStatus, EventType, InvoiceStatus, PortalTheme, PortalVisibilityReason, ReminderConcern, SongGenre } from '@/types/api';
+import trumpeterFigure from '@/assets/musicians/trumpeter.png';
 
 export type ContactPrimaryRole = 'CUSTOMER' | 'VENUE' | 'BOOKING_AGENT' | 'BAND_MEMBER';
 
@@ -670,3 +671,41 @@ export interface QuickAction {
 }
 
 export const QUICK_ACTIONS: readonly QuickAction[] = [...NAV_DESTINATIONS, ...QUICK_ACTION_CREATES];
+
+// ─── Musician decorations (#858, docs/musician-decorations-grill.md) ────────
+// The woodcut score-cover ornament pool. Declared once here per the "one
+// declaration per vocabulary" rule — MusicianDecoration derives its asset map
+// and its random pick from this table, and nothing hand-writes a second list.
+//
+// Unlike BookingStatus/EventType there is no pre-existing external union to
+// guard coverage against — same situation as LOGISTICS_FIELDS and
+// NAV_DESTINATIONS above — so MusicianFigure is derived from the table rather
+// than checked against an enum, and a coverage guard would be vacuous.
+//
+// Assets are statically imported (not a `public/` URL string) so Vite
+// content-hashes and optimises them. Every figure shares one square crop, which
+// is what makes a random draw safe: any figure is interchangeable in the slot.
+export interface MusicianFigureRow {
+  value: string;
+  asset: string;
+  /** Human-readable, for the story's caption only — never announced to assistive tech. */
+  description: string;
+}
+
+const MUSICIAN_FIGURES = [
+  { value: 'trumpeter', asset: trumpeterFigure, description: 'Trumpeter, standing, horn raised' },
+] as const satisfies readonly MusicianFigureRow[];
+
+export type MusicianFigure = (typeof MUSICIAN_FIGURES)[number]['value'];
+
+export const MUSICIAN_FIGURE_ORDER: MusicianFigure[] = MUSICIAN_FIGURES.map((row) => row.value);
+
+export const MUSICIAN_FIGURE_ASSETS = column(MUSICIAN_FIGURES, 'asset');
+
+export const MUSICIAN_FIGURE_DESCRIPTIONS = column(MUSICIAN_FIGURES, 'description');
+
+// Tailpiece — the ornament that closes a movement. The stage-advance dialog is a
+// bottom sheet on mobile, so this stays small enough to keep the actions above the
+// fold. A starting point, tuned by eye in the story (the grill left it deliberately
+// unspecified); the floor is set by the hatching, which muddies at icon size.
+export const MUSICIAN_TAILPIECE_PX = 96;
