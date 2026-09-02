@@ -7,13 +7,18 @@ export class CreateChairDto {
   @IsNotEmpty()
   role!: string;
 
+  // #987: was `packageId`. A chair is seated in a *Lineup*, never in a segment — ADR-0081 §1, "only
+  // an instance can be pointed at". The old segment-keyed lookup could not survive a Lineup playing
+  // several segments, and its "no links" probe could no longer tell the whole-gig band from a band
+  // that had just lost its last segment. Omitted, a fresh unnamed Lineup is created for this chair
+  // (the musician who has no lineup templates and adds one part at a time, #884). `order` (position
+  // within the Lineup) is computed server-side.
   @ApiPropertyOptional({
     description:
-      'Segment to seat this chair in; omit for a package-less/whole-day chair. Joins the Lineup ' +
-      'already playing this segment, or starts a new one — `order` (position within that Lineup) ' +
-      'is computed server-side, since the target Lineup may not exist yet (ADR-0081).',
+      'Lineup to seat this chair in (ADR-0081 §1). Omit to start a new unnamed Lineup holding ' +
+      'just this chair — the one-part-at-a-time path (#884).',
   })
   @IsOptional()
   @IsUUID()
-  packageId?: string;
+  lineupId?: string;
 }

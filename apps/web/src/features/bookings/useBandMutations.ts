@@ -1,16 +1,22 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiDelete, apiPatch, apiPost } from '@/lib/api';
 import { toast } from '@/lib/hooks/use-toast';
-import type { BookingBandChair, BookingBandMemberStatus, BookingDetail } from '@/types/api';
+import type { BookingBandMemberStatus, BookingDetail } from '@/types/api';
 
 // Band members v1 (#879, ADR-0072 §2/§3/§5, #884/#885; re-pointed by ADR-0081). Mirrors
 // useItineraryMutations: the shell that drives the Band atom (BandSheet) owns these mutations; the
 // atom stays presentational. Chair CRUD + lineups are #884; assignChair/updateMemberStatus/
-// saveMemberFee/removeMember are #885.
+// saveMemberFee are #885.
+//
+// #987 dropped three mutations along with the controls that drove them, on #983's resolved design:
+// `moveChair`/`updateChair` (a part row carries ONE action, so the sheet has no reorder and no
+// rename) and `removeMember` (no per-person remove — a player leaves by coming out of every part,
+// and the Players card is purely derived). The API routes all still exist; nothing on this surface
+// calls them. Flagged to the owner as a capability change, not a silent drop.
 
 type Rollback = { prev?: BookingDetail };
 
-export function useBandMutations(bookingId: string, chairs: BookingBandChair[]) {
+export function useBandMutations(bookingId: string) {
   const queryClient = useQueryClient();
   const bookingKey = ['booking', bookingId];
 
@@ -33,40 +39,42 @@ export function useBandMutations(bookingId: string, chairs: BookingBandChair[]) 
     toast({ title, variant: 'destructive' });
   }
 
+  // #987: a lineup is applied to a *set* of segments, so one band playing the drinks and the
+  // reception is one write, one Lineup, and four parts rather than eight. `packageIds: []` is a
+  // real target (the whole gig, or a band parked with nothing to play yet), never "unset".
   const applyLineup = useMutation({
-    mutationFn: ({ lineupTemplateId, packageId }: { lineupTemplateId: string; packageId: string | null }) =>
-      apiPost(`/bookings/${bookingId}/lineups`, { lineupTemplateId, ...(packageId ? { packageId } : {}) }),
+    mutationFn: ({ lineupTemplateId, packageIds }: { lineupTemplateId: string; packageIds: string[] }) =>
+      apiPost(`/bookings/${bookingId}/lineups`, { lineupTemplateId, packageIds }),
     onSuccess: invalidateBooking,
     onError: () => toast({ title: 'Failed to apply lineup. Please try again.', variant: 'destructive' }),
   });
 
-  // `order` is server-computed (ADR-0081): it's the chair's position within its Lineup, and the
-  // target Lineup may not exist yet (a segment with no band yet joins or starts one server-side).
-  const addChair = useMutation({
-    mutationFn: ({ role, packageId }: { role: string; packageId: string | null }) =>
-      apiPost(`/bookings/${bookingId}/chairs`, {
-        role,
-        ...(packageId ? { packageId } : {}),
-      }),
+  // #987 journey ④ — "What they play…". Sets the whole segment set; the band keeps its parts, its
+  // people and their confirmations either way.
+  const setLineupSegments = useMutation({
+    mutationFn: ({ lineupId, packageIds }: { lineupId: string; packageIds: string[] }) =>
+      apiPatch(`/bookings/${bookingId}/lineups/${lineupId}`, { packageIds }),
     onSuccess: invalidateBooking,
-    onError: () => toast({ title: 'Failed to add chair. Please try again.', variant: 'destructive' }),
+    onError: () => toast({ title: 'Failed to update what this band plays. Please try again.', variant: 'destructive' }),
   });
 
-  // Optimistic (unlike addSet/updateSet's server-first pattern): moveChair below fires two of
-  // these back-to-back to swap an order pair, and a round-trip-per-write would let the first
-  // PATCH's success refetch a half-swapped server state before the second lands, flickering the
-  // row order. Each onMutate reads the cache as the previous mutate() call left it, so the pair
-  // composes into one correct optimistic swap rather than two racing round-trips.
-  const updateChair = useMutation({
-    mutationFn: ({ chairId, dto }: { chairId: string; dto: { role?: string; order?: number } }) =>
-      apiPatch(`/bookings/${bookingId}/chairs/${chairId}`, dto),
-    onMutate: ({ chairId, dto }) =>
-      applyOptimistic((b) => ({
-        ...b,
-        band: { ...b.band, chairs: b.band.chairs.map((c) => (c.id === chairId ? { ...c, ...dto } : c)) },
-      })),
-    onError: (_e, _vars, ctx) => rollback(ctx, 'Failed to update chair. Please try again.'),
-    onSettled: invalidateBooking,
+  const removeLineup = useMutation({
+    mutationFn: (lineupId: string) => apiDelete(`/bookings/${bookingId}/lineups/${lineupId}`),
+    onSuccess: invalidateBooking,
+    onError: () => toast({ title: 'Failed to remove this band. Please try again.', variant: 'destructive' }),
+  });
+
+  // `order` is server-computed (ADR-0081): it's the part's position within its Lineup. #987: the
+  // part names its Lineup, not its segment — omitted, the server starts a fresh unnamed one, which
+  // is the musician with no lineup templates adding one part at a time (#884).
+  const addChair = useMutation({
+    mutationFn: ({ role, lineupId }: { role: string; lineupId: string | null }) =>
+      apiPost(`/bookings/${bookingId}/chairs`, {
+        role,
+        ...(lineupId ? { lineupId } : {}),
+      }),
+    onSuccess: invalidateBooking,
+    onError: () => toast({ title: 'Failed to add part. Please try again.', variant: 'destructive' }),
   });
 
   const removeChair = useMutation({
@@ -79,41 +87,6 @@ export function useBandMutations(bookingId: string, chairs: BookingBandChair[]) 
     onError: (_e, _chairId, ctx) => rollback(ctx, 'Failed to remove chair. Please try again.'),
     onSettled: invalidateBooking,
   });
-
-  // Reorders by swapping the `order` of two adjacent chairs *within the same Lineup* (ADR-0081:
-  // order is per-Lineup, not booking-wide — two different bands' chairs can share an order value).
-  // One synchronous optimistic write up front for the whole swap, then two independent PATCHes.
-  // Without the synchronous pre-swap, each PATCH's own optimistic `onMutate` (which awaits
-  // cancelQueries) could interleave and momentarily show a half-swapped order; writing the final
-  // state here first means both PATCHes' own optimistic edits just redundantly confirm it.
-  function moveChair(chairId: string, direction: 'up' | 'down') {
-    const moving = chairs.find((c) => c.id === chairId);
-    if (!moving) return;
-    const sorted = chairs.filter((c) => c.lineupId === moving.lineupId).sort((a, b) => a.order - b.order);
-    const index = sorted.findIndex((c) => c.id === chairId);
-    const swapIndex = direction === 'up' ? index - 1 : index + 1;
-    if (index === -1 || swapIndex < 0 || swapIndex >= sorted.length) return;
-    const a = sorted[index];
-    const b = sorted[swapIndex];
-
-    const prev = queryClient.getQueryData<BookingDetail>(bookingKey);
-    if (prev) {
-      queryClient.setQueryData<BookingDetail>(bookingKey, {
-        ...prev,
-        band: {
-          ...prev.band,
-          chairs: prev.band.chairs.map((c) => {
-            if (c.id === a.id) return { ...c, order: b.order };
-            if (c.id === b.id) return { ...c, order: a.order };
-            return c;
-          }),
-        },
-      });
-    }
-
-    updateChair.mutate({ chairId: a.id, dto: { order: b.order } });
-    updateChair.mutate({ chairId: b.id, dto: { order: a.order } });
-  }
 
   // Assignment never creates or destroys a chair row, it sets a field (ADR-0072 §2) — server-first
   // like addChair/updateChair's re-parent, since the resulting member row (id, contact) isn't known
@@ -140,33 +113,14 @@ export function useBandMutations(bookingId: string, chairs: BookingBandChair[]) 
     onError: () => toast({ title: 'Failed to save fee. Please try again.', variant: 'destructive' }),
   });
 
-  // Soft removal (ADR-0072 §5): the result is fully known client-side (the member disappears, and
-  // every chair it held reverts to a vacancy), so — unlike assignChair — this is optimistic,
-  // mirroring removeChair above.
-  const removeMember = useMutation({
-    mutationFn: (memberId: string) => apiDelete(`/bookings/${bookingId}/band-members/${memberId}`),
-    onMutate: (memberId) =>
-      applyOptimistic((b) => ({
-        ...b,
-        band: {
-          ...b.band,
-          members: b.band.members.filter((m) => m.id !== memberId),
-          chairs: b.band.chairs.map((c) => (c.memberId === memberId ? { ...c, memberId: null } : c)),
-        },
-      })),
-    onError: (_e, _memberId, ctx) => rollback(ctx, 'Failed to remove member. Please try again.'),
-    onSettled: invalidateBooking,
-  });
-
   return {
     applyLineup,
+    setLineupSegments,
+    removeLineup,
     addChair,
-    updateChair,
     removeChair,
-    moveChair,
     assignChair,
     updateMemberStatus,
     saveMemberFee,
-    removeMember,
   };
 }

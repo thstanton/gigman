@@ -5,9 +5,9 @@ import { useLineupTemplates } from '@/lib/hooks/useLineupTemplates';
 import { useRoleVocabulary } from '@/lib/hooks/useRoleVocabulary';
 import type { BookingBandChair, BookingBandMember, BookingLineup, BookingPackageSummary, Contact } from '@/types/api';
 
-// Band members v1 (#879, ADR-0072 §6 / #885). Opened from the booking via ?sheet=band — the
-// "change something" surface. One row per member with segment chips, plus the unfilled-chair block
-// from #884.
+// Band members v1 (#879, ADR-0072 §6 / #885), rebuilt for #987 on #983's resolved design. Opened
+// from the booking via ?sheet=band — the "change something" surface. Three cards: the bands on this
+// gig, the people playing, and the parts still to fill.
 
 interface Props {
   bookingId: string;
@@ -26,14 +26,14 @@ export function BandSheet({ bookingId, lineups, chairs, members, packages, venue
 
   const {
     applyLineup,
+    setLineupSegments,
+    removeLineup,
     addChair,
     removeChair,
-    moveChair,
     assignChair,
     updateMemberStatus,
     saveMemberFee,
-    removeMember,
-  } = useBandMutations(bookingId, chairs);
+  } = useBandMutations(bookingId);
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -52,21 +52,22 @@ export function BandSheet({ bookingId, lineups, chairs, members, packages, venue
             instrumentVocabulary={instrumentVocabulary}
             lineupTemplates={lineupTemplates}
             lineupTemplatesLoading={lineupTemplatesLoading}
-            onApplyLineup={(lineupTemplateId, packageId) => applyLineup.mutate({ lineupTemplateId, packageId })}
+            onApplyLineup={(lineupTemplateId, packageIds) => applyLineup.mutate({ lineupTemplateId, packageIds })}
             isApplyingLineup={applyLineup.isPending}
-            onAddChair={(role, packageId) => addChair.mutate({ role, packageId })}
+            onSetLineupSegments={(lineupId, packageIds) => setLineupSegments.mutate({ lineupId, packageIds })}
+            isSettingLineupSegments={setLineupSegments.isPending}
+            onRemoveLineup={(lineupId) => removeLineup.mutate(lineupId)}
+            removingLineupId={removeLineup.isPending ? (removeLineup.variables ?? null) : null}
+            onAddChair={(role, lineupId) => addChair.mutate({ role, lineupId })}
             isAddingChair={addChair.isPending}
             onRemoveChair={(chairId) => removeChair.mutate(chairId)}
             removingChairId={removeChair.isPending ? (removeChair.variables ?? null) : null}
-            onMoveChair={moveChair}
             onAssignChair={(chairId, contactId) => assignChair.mutate({ chairId, contactId })}
             assigningChairId={assignChair.isPending ? (assignChair.variables?.chairId ?? null) : null}
             onChangeMemberStatus={(memberId, status) => updateMemberStatus.mutate({ memberId, status })}
             changingStatusMemberId={updateMemberStatus.isPending ? (updateMemberStatus.variables?.memberId ?? null) : null}
             onSaveMemberFee={(memberId, sessionFee) => saveMemberFee.mutate({ memberId, sessionFee })}
             savingFeeMemberId={saveMemberFee.isPending ? (saveMemberFee.variables?.memberId ?? null) : null}
-            onRemoveMember={(memberId) => removeMember.mutate(memberId)}
-            removingMemberId={removeMember.isPending ? (removeMember.variables ?? null) : null}
           />
         </div>
       </SheetContent>

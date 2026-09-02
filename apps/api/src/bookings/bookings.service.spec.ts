@@ -34,6 +34,8 @@ type MockRepo = {
   applyLineupTemplate: jest.Mock;
   findChair: jest.Mock;
   findLineup: jest.Mock;
+  setLineupSegments: jest.Mock;
+  deleteLineup: jest.Mock;
   addChair: jest.Mock;
   updateChair: jest.Mock;
   deleteChair: jest.Mock;
@@ -107,6 +109,8 @@ function makeRepo(): MockRepo {
     applyLineupTemplate: jest.fn(),
     findChair: jest.fn(),
     findLineup: jest.fn(),
+    setLineupSegments: jest.fn(),
+    deleteLineup: jest.fn(),
     addChair: jest.fn(),
     updateChair: jest.fn(),
     deleteChair: jest.fn(),
@@ -985,75 +989,144 @@ describe('BookingsService', () => {
     const rawBooking = { ...booking, musicFormConfig: null, musicFormResponse: null, packages: [] };
     const lineup = { id: 'lt1', label: 'My five-piece', slots: [{ id: 'ls1', role: 'Sax', order: 1 }] };
 
-    it('applies a lineup when booking and lineup both exist, package-less', async () => {
+    it('applies a lineup when booking and lineup both exist, targeting no segments', async () => {
       lineups.findOne.mockResolvedValue(lineup);
       repo.applyLineupTemplate.mockResolvedValue(rawBooking);
-      await service.applyLineupTemplate('u1', 'b1', { lineupTemplateId: 'lt1' });
+      await service.applyLineupTemplate('u1', 'b1', { lineupTemplateId: 'lt1', packageIds: [] });
       expect(lineups.findOne).toHaveBeenCalledWith('u1', 'lt1');
       expect(repo.applyLineupTemplate).toHaveBeenCalledWith(
         'u1',
         'b1',
         { label: 'My five-piece', slots: [{ role: 'Sax', order: 1 }] },
-        null,
+        [],
       );
       expect(repo.findBookingPackage).not.toHaveBeenCalled();
     });
 
-    it('proves package ownership before targeting it', async () => {
+    // #987 journey ①: one band, however many sets. The set reaches the repository whole — the
+    // collapse from eight chairs to four is exactly this argument not being split into two calls.
+    it('passes the whole segment set through in one call, proving ownership of every one', async () => {
       lineups.findOne.mockResolvedValue(lineup);
-      repo.findBookingPackage.mockResolvedValue({ id: 'pkg1', label: 'Evening', icon: 'music', order: 1 });
+      repo.findBookingPackage.mockImplementation((_u: string, _b: string, id: string) =>
+        Promise.resolve({ id, label: id, icon: 'music', order: 1 }),
+      );
       repo.applyLineupTemplate.mockResolvedValue(rawBooking);
-      await service.applyLineupTemplate('u1', 'b1', { lineupTemplateId: 'lt1', packageId: 'pkg1' });
+      await service.applyLineupTemplate('u1', 'b1', { lineupTemplateId: 'lt1', packageIds: ['pkg1', 'pkg2'] });
       expect(repo.findBookingPackage).toHaveBeenCalledWith('u1', 'b1', 'pkg1');
-      expect(repo.applyLineupTemplate).toHaveBeenCalledWith('u1', 'b1', expect.anything(), 'pkg1');
+      expect(repo.findBookingPackage).toHaveBeenCalledWith('u1', 'b1', 'pkg2');
+      expect(repo.applyLineupTemplate).toHaveBeenCalledWith('u1', 'b1', expect.anything(), ['pkg1', 'pkg2']);
     });
 
     it('throws NotFoundException when the lineup template is not found (never touches a foreign tenant\'s lineup)', async () => {
       lineups.findOne.mockResolvedValue(null);
-      await expect(service.applyLineupTemplate('u1', 'b1', { lineupTemplateId: 'bad-id' })).rejects.toThrow(NotFoundException);
+      await expect(
+        service.applyLineupTemplate('u1', 'b1', { lineupTemplateId: 'bad-id', packageIds: [] }),
+      ).rejects.toThrow(NotFoundException);
       expect(repo.applyLineupTemplate).not.toHaveBeenCalled();
     });
 
-    it('throws NotFoundException when the targeted package is not found', async () => {
+    // One foreign id in the set fails the whole write — a partially-applied lineup would leave a
+    // band linked to some of what the musician asked for and silently not the rest.
+    it('throws NotFoundException when any targeted package is not found, writing nothing', async () => {
       lineups.findOne.mockResolvedValue(lineup);
-      repo.findBookingPackage.mockResolvedValue(null);
+      repo.findBookingPackage.mockImplementation((_u: string, _b: string, id: string) =>
+        Promise.resolve(id === 'pkg1' ? { id, label: id, icon: 'music', order: 1 } : null),
+      );
       await expect(
-        service.applyLineupTemplate('u1', 'b1', { lineupTemplateId: 'lt1', packageId: 'bad-pkg' }),
+        service.applyLineupTemplate('u1', 'b1', { lineupTemplateId: 'lt1', packageIds: ['pkg1', 'foreign'] }),
       ).rejects.toThrow(NotFoundException);
       expect(repo.applyLineupTemplate).not.toHaveBeenCalled();
     });
 
     it('throws NotFoundException when booking is not found', async () => {
       repo.findForOwnership.mockResolvedValue(null);
-      await expect(service.applyLineupTemplate('u1', 'missing', { lineupTemplateId: 'lt1' })).rejects.toThrow(
+      await expect(
+        service.applyLineupTemplate('u1', 'missing', { lineupTemplateId: 'lt1', packageIds: [] }),
+      ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  // #987 journey ④ — the drinks set is downgraded to a solo, late.
+  describe('setLineupSegments', () => {
+    const rawBooking = { ...booking, musicFormConfig: null, musicFormResponse: null, packages: [] };
+
+    it('sets the segment set when booking and lineup both exist', async () => {
+      repo.findLineup.mockResolvedValue({ id: 'lu1', bookingId: 'b1', label: 'My five-piece' });
+      repo.findBookingPackage.mockResolvedValue({ id: 'pkg2', label: 'Reception', icon: 'music', order: 2 });
+      repo.setLineupSegments.mockResolvedValue(rawBooking);
+      await service.setLineupSegments('u1', 'b1', 'lu1', { packageIds: ['pkg2'] });
+      expect(repo.setLineupSegments).toHaveBeenCalledWith('u1', 'b1', 'lu1', ['pkg2']);
+    });
+
+    // Emptying the set is a legitimate destination, not a delete: a Lineup that plays nothing yet
+    // is a state the musician looks at (ADR-0081 §4, #983 story state 7).
+    it('allows a Lineup to be left playing nothing, without deleting it', async () => {
+      repo.findLineup.mockResolvedValue({ id: 'lu1', bookingId: 'b1', label: 'My five-piece' });
+      repo.setLineupSegments.mockResolvedValue(rawBooking);
+      await service.setLineupSegments('u1', 'b1', 'lu1', { packageIds: [] });
+      expect(repo.setLineupSegments).toHaveBeenCalledWith('u1', 'b1', 'lu1', []);
+      expect(repo.deleteLineup).not.toHaveBeenCalled();
+    });
+
+    it('throws NotFoundException for a lineup on another booking, writing nothing', async () => {
+      repo.findLineup.mockResolvedValue(null);
+      await expect(service.setLineupSegments('u1', 'b1', 'foreign', { packageIds: [] })).rejects.toThrow(
         NotFoundException,
       );
+      expect(repo.setLineupSegments).not.toHaveBeenCalled();
+    });
+
+    it('throws NotFoundException when a targeted package is not found, writing nothing', async () => {
+      repo.findLineup.mockResolvedValue({ id: 'lu1', bookingId: 'b1', label: null });
+      repo.findBookingPackage.mockResolvedValue(null);
+      await expect(
+        service.setLineupSegments('u1', 'b1', 'lu1', { packageIds: ['bad-pkg'] }),
+      ).rejects.toThrow(NotFoundException);
+      expect(repo.setLineupSegments).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('removeLineup', () => {
+    const rawBooking = { ...booking, musicFormConfig: null, musicFormResponse: null, packages: [] };
+
+    it('removes the lineup when booking and lineup both exist', async () => {
+      repo.findLineup.mockResolvedValue({ id: 'lu1', bookingId: 'b1', label: 'My five-piece' });
+      repo.deleteLineup.mockResolvedValue(rawBooking);
+      await service.removeLineup('u1', 'b1', 'lu1');
+      expect(repo.deleteLineup).toHaveBeenCalledWith('b1', 'lu1');
+    });
+
+    it('throws NotFoundException for a lineup on another booking, deleting nothing', async () => {
+      repo.findLineup.mockResolvedValue(null);
+      await expect(service.removeLineup('u1', 'b1', 'foreign')).rejects.toThrow(NotFoundException);
+      expect(repo.deleteLineup).not.toHaveBeenCalled();
     });
   });
 
   describe('addChair', () => {
     const chair = { id: 'ch1', bookingId: 'b1', role: 'Sax', order: 1, lineupId: 'lu1', memberId: null };
 
-    it('adds a chair when the booking exists, package-less', async () => {
+    it('adds a chair when the booking exists, starting a fresh Lineup', async () => {
       repo.addChair.mockResolvedValue(chair);
       const dto = { role: 'Sax' };
       const result = await service.addChair('u1', 'b1', dto);
       expect(repo.addChair).toHaveBeenCalledWith('u1', 'b1', dto);
-      expect(repo.findBookingPackage).not.toHaveBeenCalled();
+      expect(repo.findLineup).not.toHaveBeenCalled();
       expect(result).toBe(chair);
     });
 
-    it('proves package ownership before adding a chair targeting it', async () => {
-      repo.findBookingPackage.mockResolvedValue({ id: 'pkg1', label: 'Evening', icon: 'music', order: 1 });
+    // ADR-0081 §1: a chair names its Lineup, so that Lineup's ownership is what must be proven.
+    it('proves lineup ownership before seating a chair in it', async () => {
+      repo.findLineup.mockResolvedValue({ id: 'lu1', bookingId: 'b1', label: null });
       repo.addChair.mockResolvedValue(chair);
-      await service.addChair('u1', 'b1', { role: 'Sax', packageId: 'pkg1' });
-      expect(repo.findBookingPackage).toHaveBeenCalledWith('u1', 'b1', 'pkg1');
+      await service.addChair('u1', 'b1', { role: 'Sax', lineupId: 'lu1' });
+      expect(repo.findLineup).toHaveBeenCalledWith('u1', 'b1', 'lu1');
     });
 
-    it('throws NotFoundException when the targeted package is not found', async () => {
-      repo.findBookingPackage.mockResolvedValue(null);
+    it('throws NotFoundException when the targeted lineup is not found', async () => {
+      repo.findLineup.mockResolvedValue(null);
       await expect(
-        service.addChair('u1', 'b1', { role: 'Sax', packageId: 'bad-pkg' }),
+        service.addChair('u1', 'b1', { role: 'Sax', lineupId: 'foreign' }),
       ).rejects.toThrow(NotFoundException);
       expect(repo.addChair).not.toHaveBeenCalled();
     });
@@ -1126,6 +1199,32 @@ describe('BookingsService', () => {
       expect(repo.findActiveMemberByContact).toHaveBeenCalledWith('u1', 'b1', 'c1');
       expect(repo.createMember).not.toHaveBeenCalled();
       expect(repo.setChairMember).toHaveBeenCalledWith('ch1', 'm1');
+    });
+
+    // ═══ #987 AC 8 / ADR-0072 §2 — journey ②'s discriminator ═══
+    // A player holding a part in the ceremony solo AND the reception seven-piece is still ONE row:
+    // one link, one fee, one confirmation. The member lookup is booking-scoped, never Lineup-scoped,
+    // so seating them in a second Lineup must reuse the row rather than fork their answer.
+    it('reuses the one member row when the same person is seated in a second Lineup', async () => {
+      const existing = { id: 'm1', contactId: 'c1' };
+      repo.findActiveMemberByContact.mockResolvedValue(existing);
+
+      // Ceremony solo.
+      repo.findChair.mockResolvedValue({ id: 'chCeremony', bookingId: 'b1', role: 'Piano', order: 1, lineupId: 'solo', memberId: null });
+      repo.setChairMember.mockResolvedValue({ id: 'chCeremony', memberId: 'm1' });
+      await service.assignChair('u1', 'b1', 'chCeremony', { contactId: 'c1' });
+
+      // Reception seven-piece — a different Lineup entirely.
+      repo.findChair.mockResolvedValue({ id: 'chReception', bookingId: 'b1', role: 'Keys', order: 3, lineupId: 'sevenPiece', memberId: null });
+      repo.setChairMember.mockResolvedValue({ id: 'chReception', memberId: 'm1' });
+      await service.assignChair('u1', 'b1', 'chReception', { contactId: 'c1' });
+
+      expect(repo.createMember).not.toHaveBeenCalled();
+      expect(repo.findActiveMemberByContact).toHaveBeenNthCalledWith(1, 'u1', 'b1', 'c1');
+      expect(repo.findActiveMemberByContact).toHaveBeenNthCalledWith(2, 'u1', 'b1', 'c1');
+      // Both chairs point at the same person.
+      expect(repo.setChairMember).toHaveBeenNthCalledWith(1, 'chCeremony', 'm1');
+      expect(repo.setChairMember).toHaveBeenNthCalledWith(2, 'chReception', 'm1');
     });
 
     it('creates a member row on first assignment of a contact to this booking', async () => {
@@ -1283,6 +1382,41 @@ describe('BookingsService', () => {
         { id: 'lu2', label: null, bookingId: 'b1', packageIds: [] },
         { id: 'lu3', label: null, bookingId: 'b1', packageIds: ['pkg-no-sets'] },
       ]);
+    });
+
+    // ═══ #987 AC 5 — call times derive across the union of a Lineup's segments ═══
+    // "A player on drinks and reception is called for the drinks." The derivation already folded
+    // across the whole segment set (#985 built it that way); this is the assertion that says so,
+    // and that pins it now that a Lineup can actually play more than one segment.
+    it('calls a band playing two segments for the earlier of them', async () => {
+      const raw = {
+        ...booking,
+        musicFormConfig: null,
+        musicFormResponse: null,
+        packages: [],
+        sets: [
+          { id: 's1', packageId: 'reception', startTime: '20:30', order: 2 },
+          { id: 's2', packageId: 'drinks', startTime: '18:00', order: 1 },
+        ],
+        lineups: [
+          {
+            id: 'fourPiece',
+            label: 'My four-piece',
+            bookingId: 'b1',
+            packages: [{ packageId: 'reception' }, { packageId: 'drinks' }],
+          },
+        ],
+        bandChairs: [
+          { id: 'ch1', bookingId: 'b1', role: 'Bass', order: 1, lineupId: 'fourPiece', memberId: 'm1' },
+          { id: 'ch2', bookingId: 'b1', role: 'Keys', order: 2, lineupId: 'fourPiece', memberId: 'm2' },
+        ],
+      };
+      repo.findOne.mockResolvedValue(raw);
+      const result = await service.findOne('u1', 'b1');
+      // 18:00 (drinks), not 20:30 (reception) — and not the first link's segment either, which is
+      // reception here precisely so that link order cannot be what makes this pass.
+      expect(result.band.chairs.map((c) => c.callTime)).toEqual(['18:00', '18:00']);
+      expect(result.band.lineups[0].packageIds).toEqual(['reception', 'drinks']);
     });
 
     it('is an empty array when the booking has no chairs or lineups', async () => {

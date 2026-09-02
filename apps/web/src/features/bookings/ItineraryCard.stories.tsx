@@ -160,7 +160,7 @@ export const WithBandRoster: Story = {
 };
 
 export const RosterOnAPackagelessBooking: Story = {
-  name: 'A package-less booking still renders its chairs, under "Whole day" (#887)',
+  name: 'A package-less booking still renders its parts, under "The whole gig" (#887, #987)',
   args: {
     logistics: null,
     sets: [],
@@ -172,7 +172,9 @@ export const RosterOnAPackagelessBooking: Story = {
   play: async ({ canvas }) => {
     // The roster bypasses the "No itinerary yet" empty state entirely.
     await expect(canvas.queryByText('No itinerary yet')).not.toBeInTheDocument();
-    await expect(canvas.getByText('Whole day')).toBeVisible();
+    // #987 retired the "Whole day" sentinel: with no packages on the booking, an empty link
+    // set unambiguously means the whole gig, and the heading says so.
+    await expect(canvas.getByText('The whole gig')).toBeVisible();
     await expect(canvas.getByText('MC')).toBeVisible();
     await expect(canvas.getByText('Vacant')).toBeVisible();
   },

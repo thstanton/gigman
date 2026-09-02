@@ -30,6 +30,7 @@ import { UpdateChairDto } from './dto/update-chair.dto';
 import { AssignChairDto } from './dto/assign-chair.dto';
 import { UpdateBandMemberDto } from './dto/update-band-member.dto';
 import { ApplyLineupTemplateDto } from './dto/apply-lineup-template.dto';
+import { UpdateLineupSegmentsDto } from './dto/update-lineup-segments.dto';
 import { UpsertMusicFormConfigDto } from './dto/upsert-music-form-config.dto';
 import { UpdateContractDto } from './dto/update-contract.dto';
 import { UpdateChecklistItemDto } from './dto/update-checklist-item.dto';
@@ -352,7 +353,7 @@ export class BookingsController {
     return this.service.removePackage(req.userId, id, packageId);
   }
 
-  @ApiOperation({ summary: 'Apply a lineup template to a booking (creates chairs); optionally targets a segment' })
+  @ApiOperation({ summary: 'Apply a lineup template to a booking, targeting a set of segments (creates chairs)' })
   @ApiResponse({ status: 201, type: BookingResponseDto, description: 'Updated booking' })
   @ApiResponse({ status: 404, description: 'Booking, lineup template, or package not found.' })
   @Post(':id/lineups')
@@ -365,7 +366,35 @@ export class BookingsController {
     return this.service.applyLineupTemplate(req.userId, id, dto);
   }
 
-  @ApiOperation({ summary: 'Add a chair (a vacant seat in a segment) to a booking' })
+  @ApiOperation({ summary: "Set which segments a Lineup plays, leaving its chairs untouched" })
+  @ApiResponse({ status: 200, type: BookingResponseDto, description: 'Updated booking' })
+  @ApiResponse({ status: 404, description: 'Booking, lineup, or package not found.' })
+  @Patch(':id/lineups/:lineupId')
+  setLineupSegments(
+    @Req() req: AuthedRequest,
+    @Param('id') id: string,
+    @Param('lineupId') lineupId: string,
+    @Body() dto: UpdateLineupSegmentsDto,
+  ) {
+    assertBandMembersEnabled();
+    return this.service.setLineupSegments(req.userId, id, lineupId, dto);
+  }
+
+  @ApiOperation({ summary: 'Remove a Lineup from a booking, with its chairs' })
+  @ApiResponse({ status: 200, type: BookingResponseDto, description: 'Updated booking' })
+  @ApiResponse({ status: 404, description: 'Booking or lineup not found.' })
+  @Delete(':id/lineups/:lineupId')
+  removeLineup(
+    @Req() req: AuthedRequest,
+    @Param('id') id: string,
+    @Param('lineupId') lineupId: string,
+  ) {
+    assertBandMembersEnabled();
+    return this.service.removeLineup(req.userId, id, lineupId);
+  }
+
+  @ApiOperation({ summary: 'Add a chair (a vacant seat in a Lineup) to a booking' })
+  @ApiResponse({ status: 404, description: 'Booking or lineup not found.' })
   @Post(':id/chairs')
   addChair(
     @Req() req: AuthedRequest,
@@ -376,7 +405,7 @@ export class BookingsController {
     return this.service.addChair(req.userId, id, dto);
   }
 
-  @ApiOperation({ summary: 'Update a chair (role, order, or re-parent to a different segment)' })
+  @ApiOperation({ summary: 'Update a chair (role, order, or re-parent to a different Lineup)' })
   @Patch(':id/chairs/:chairId')
   updateChair(
     @Req() req: AuthedRequest,

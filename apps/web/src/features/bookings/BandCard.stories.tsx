@@ -4,27 +4,25 @@ import { expect } from 'storybook/test';
 import { MemoryRouter } from 'react-router-dom';
 import BandCard from './BandCard';
 import { bandMember } from '@/test/factories';
-import type { BookingBand, BookingBandChair, BookingPackageSummary } from '@/types/api';
+import type { BookingBand, BookingBandChair } from '@/types/api';
 
 // Band members v1 (#879, ADR-0072 §6, #887): the Info tab's directory, grouped by answer rather
-// than a flat list. Confirmed · Waiting on · Still to sort · Chairs to fill, empty groups omitted.
-
-const packages: BookingPackageSummary[] = [{ id: 'pkg-evening', order: 0, label: 'Evening', icon: 'guitar' }];
+// than a flat list. Confirmed · Waiting on · Still to sort · Parts to fill, empty groups omitted.
 
 const chairs: BookingBandChair[] = [
   { id: 'ch1', role: 'Vocals', order: 1, lineupId: 'lu-evening', memberId: 'm-confirmed', callTime: '19:30' },
   { id: 'ch2', role: 'Sax', order: 2, lineupId: 'lu-evening', memberId: 'm-confirmed', callTime: '19:30' },
   { id: 'ch3', role: 'Guitar', order: 3, lineupId: 'lu-evening', memberId: 'm-invited', callTime: '19:30' },
   { id: 'ch4', role: 'Drums', order: 4, lineupId: 'lu-evening', memberId: 'm-added', callTime: '19:30' },
-  { id: 'ch5', role: 'Keys', order: 1, lineupId: 'lu-whole-day', memberId: null, callTime: null },
+  { id: 'ch5', role: 'Keys', order: 5, lineupId: 'lu-evening', memberId: null, callTime: '19:30' },
   { id: 'ch6', role: 'Cello', order: 5, lineupId: 'lu-evening', memberId: 'm-declined', callTime: '19:30' },
 ];
 
 const band: BookingBand = {
-  lineups: [
-    { id: 'lu-evening', label: null, packageIds: ['pkg-evening'] },
-    { id: 'lu-whole-day', label: null, packageIds: [] },
-  ],
+  // ONE band on this booking — so no part badge names it (#983's suppression rule). Before #987
+  // this fixture held two unnamed Lineups for one roster, which is exactly the shape the collapse
+  // removed.
+  lineups: [{ id: 'lu-evening', label: 'My six-piece', packageIds: ['pkg-evening'] }],
   chairs,
   members: [
     bandMember({
@@ -68,7 +66,6 @@ const meta = {
   parameters: { viewport: { defaultViewport: 'mobile1' } },
   args: {
     band,
-    packages,
     hasLineupTemplates: false,
   },
 } satisfies Meta<typeof BandCard>;
@@ -78,11 +75,11 @@ type Story = StoryObj<typeof meta>;
 
 export const GroupedByAnswer: Story = {
   play: async ({ canvas }) => {
-    // Grouped by answer, in order — Confirmed, Waiting on, Still to sort, Chairs to fill.
+    // Grouped by answer, in order — Confirmed, Waiting on, Still to sort, Parts to fill.
     await expect(canvas.getByText('Confirmed')).toBeVisible();
     await expect(canvas.getByText('Waiting on')).toBeVisible();
     await expect(canvas.getByText('Still to sort')).toBeVisible();
-    await expect(canvas.getByText('Chairs to fill')).toBeVisible();
+    await expect(canvas.getByText('Parts to fill')).toBeVisible();
 
     // Dave fills two chairs but appears once, with both roles on his chip.
     await expect(canvas.getAllByText('Dave Chambers')).toHaveLength(1);
@@ -100,8 +97,11 @@ export const GroupedByAnswer: Story = {
     // The isSelf member, filling no chair, reads plain "You".
     await expect(canvas.getByText('You')).toBeVisible();
 
-    // The vacant chair renders as a badge, not a player.
-    await expect(canvas.getByText('Keys · Whole day')).toBeVisible();
+    // The vacant part renders as a badge, not a player — and #987/#983's rule means the badge is
+    // the bare role, because this booking has ONE band. The segment suffix that used to hang off
+    // every badge (and had to be de-duplicated by eye, #979) is gone.
+    await expect(canvas.getByText('Keys')).toBeVisible();
+    await expect(canvas.queryByText(/Keys · /)).not.toBeInTheDocument();
   },
 };
 
@@ -125,5 +125,28 @@ export const NoBandYetWithLineups: Story = {
   },
   play: async ({ canvas }) => {
     await expect(canvas.getByText('Apply a lineup, or add chairs one at a time.')).toBeVisible();
+  },
+};
+
+// #987 / #983: the other half of the badge rule. With TWO bands on the booking a bare role no
+// longer says which one a vacancy belongs to, so — and only then — the badge names it.
+export const TwoBandsNameTheirParts: Story = {
+  name: 'Two bands on one booking — vacancy badges name theirs',
+  args: {
+    band: {
+      lineups: [
+        { id: 'lu-solo', label: 'Ceremony solo', packageIds: ['pkg-ceremony'] },
+        { id: 'lu-six', label: 'My six-piece', packageIds: ['pkg-evening'] },
+      ],
+      chairs: [
+        { id: 'ch-piano', role: 'Piano', order: 1, lineupId: 'lu-solo', memberId: null, callTime: '13:00' },
+        { id: 'ch-keys', role: 'Keys', order: 1, lineupId: 'lu-six', memberId: null, callTime: '19:30' },
+      ],
+      members: [],
+    },
+  },
+  play: async ({ canvas }) => {
+    await expect(canvas.getByText('Piano · Ceremony solo')).toBeVisible();
+    await expect(canvas.getByText('Keys · My six-piece')).toBeVisible();
   },
 };

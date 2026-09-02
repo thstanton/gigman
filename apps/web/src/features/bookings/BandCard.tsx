@@ -6,14 +6,14 @@ import { GhostButton } from '@/components/common/GhostButton';
 import { SubLabel } from '@/components/common/SubLabel';
 import { Badge } from '@/components/ui/badge';
 import PersonChip from './PersonChip';
-import { segmentLabel } from './BandAtom';
+import { lineupName, shouldNameBand } from './bandParts';
 import {
   BAND_MEMBER_ANSWER_GROUP,
   BAND_MEMBER_ANSWER_GROUP_ORDER,
   BAND_MEMBER_STATUS_LABELS,
   type BandMemberAnswerGroup,
 } from '@/lib/constants';
-import type { BookingBand, BookingBandChair, BookingBandMember, BookingPackageSummary } from '@/types/api';
+import type { BookingBand, BookingBandChair, BookingBandMember } from '@/types/api';
 
 // Band members v1 (#879, ADR-0072 §6, #887): the Info tab's *directory* — who these people are,
 // how to reach them, who has answered. Availability is the structure (grouped by answer), not a
@@ -33,7 +33,6 @@ function memberRoleLabel(member: BookingBandMember, chairs: BookingBandChair[]):
 
 interface BandCardProps {
   band: BookingBand;
-  packages: BookingPackageSummary[];
   /** Client-derived from the `['lineups']` query (ADR-0073 §6) — kept off the booking response
    *  because it answers a different question ("does the musician have a reusable lineup at all")
    *  than the booking-level "does this booking have a band" fact the `band` block already carries. */
@@ -41,7 +40,7 @@ interface BandCardProps {
   linkState?: Record<string, string>;
 }
 
-export default function BandCard({ band, packages, hasLineupTemplates, linkState }: BandCardProps) {
+export default function BandCard({ band, hasLineupTemplates, linkState }: BandCardProps) {
   const [, setSearchParams] = useSearchParams();
   const openBandSheet = () => setSearchParams({ sheet: 'band' });
 
@@ -74,6 +73,16 @@ export default function BandCard({ band, packages, hasLineupTemplates, linkState
 
   const vacantChairs = band.chairs.filter((c) => c.memberId == null);
 
+  // #987 / #983: a badge names its band ONLY when the booking has more than one — the same rule the
+  // Band sheet's part rows use, so the musician learns it once. This is the direct fix for #979's
+  // founding complaint: a four-piece playing the drinks and the reception used to show eight badges
+  // that had to be de-duplicated by reading a segment suffix on every one. It now shows four.
+  const nameBands = shouldNameBand(band.lineups);
+  const bandNameFor = (lineupId: string) => {
+    const lineup = band.lineups.find((l) => l.id === lineupId);
+    return lineup ? lineupName(lineup) : undefined;
+  };
+
   return (
     <Card
       title="Band"
@@ -102,11 +111,11 @@ export default function BandCard({ band, packages, hasLineupTemplates, linkState
 
         {vacantChairs.length > 0 && (
           <div className="space-y-2">
-            <SubLabel>Chairs to fill</SubLabel>
+            <SubLabel>Parts to fill</SubLabel>
             <div className="flex flex-wrap gap-1.5">
               {vacantChairs.map((chair) => (
                 <Badge key={chair.id} variant="outline">
-                  {chair.role} · {segmentLabel(chair, band.lineups, packages)}
+                  {chair.role}{nameBands && ` · ${bandNameFor(chair.lineupId)}`}
                 </Badge>
               ))}
             </div>

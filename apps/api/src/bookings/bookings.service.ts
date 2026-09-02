@@ -20,6 +20,7 @@ import { UpdateChairDto } from './dto/update-chair.dto';
 import { AssignChairDto } from './dto/assign-chair.dto';
 import { UpdateBandMemberDto } from './dto/update-band-member.dto';
 import { ApplyLineupTemplateDto } from './dto/apply-lineup-template.dto';
+import { UpdateLineupSegmentsDto } from './dto/update-lineup-segments.dto';
 import { UpsertMusicFormConfigDto } from './dto/upsert-music-form-config.dto';
 import { MailService } from '../mail/mail.service';
 import { substituteTiptapVariables } from '../mail/tiptap-substitute';
@@ -645,31 +646,63 @@ export class BookingsService {
   }
 
   // Applies a lineup template as chairs (ADR-0072 §3, #884) — exactly as applyPackageTemplate
-  // produces PerformanceSet rows. `packageId` targets a segment; omitted, the chairs are
-  // package-less/whole-day (one code path, no special case).
+  // produces PerformanceSet rows. #987: `packageIds` is the set of segments the resulting Lineup
+  // plays, so one band playing the drinks and the reception is one Lineup with two links rather
+  // than two Lineups the musician has to de-duplicate by eye. Empty is not "missing": on a
+  // package-less booking it is the whole gig, on a packaged one it is a Lineup parked with nothing
+  // to play yet (ADR-0081 §4) — the repository tells them apart, not this layer.
   async applyLineupTemplate(userId: string, bookingId: string, dto: ApplyLineupTemplateDto) {
     await this.assertOwnership(userId, bookingId);
     const lineup = await this.lineups.findOne(userId, dto.lineupTemplateId);
     if (!lineup) throw new NotFoundException('Lineup template not found');
-    if (dto.packageId) {
-      const pkg = await this.repo.findBookingPackage(userId, bookingId, dto.packageId);
-      if (!pkg) throw new NotFoundException('Package not found');
-    }
+    await this.assertPackagesBelongToBooking(userId, bookingId, dto.packageIds);
     const booking = await this.repo.applyLineupTemplate(
       userId,
       bookingId,
       { label: lineup.label, slots: lineup.slots.map((s) => ({ role: s.role, order: s.order })) },
-      dto.packageId ?? null,
+      dto.packageIds,
     );
     // ADR-0071: a write returns the same mapped shape a read of the same resource would.
     return this.mapBooking(booking!);
   }
 
+  // #987 journey ④ — "the drinks set is downgraded". Replaces the Lineup's whole segment set,
+  // leaving its chairs (and so its people, their tokens and their confirmations) untouched.
+  async setLineupSegments(userId: string, bookingId: string, lineupId: string, dto: UpdateLineupSegmentsDto) {
+    await this.assertOwnership(userId, bookingId);
+    const lineup = await this.repo.findLineup(userId, bookingId, lineupId);
+    if (!lineup) throw new NotFoundException('Lineup not found');
+    await this.assertPackagesBelongToBooking(userId, bookingId, dto.packageIds);
+    const booking = await this.repo.setLineupSegments(userId, bookingId, lineupId, dto.packageIds);
+    return this.mapBooking(booking!);
+  }
+
+  // "Remove … from this booking" on the Lineups card (#983) — takes the band and its parts off the
+  // gig. Booking-scoped member rows survive, as they do when a chair is deleted.
+  async removeLineup(userId: string, bookingId: string, lineupId: string) {
+    await this.assertOwnership(userId, bookingId);
+    const lineup = await this.repo.findLineup(userId, bookingId, lineupId);
+    if (!lineup) throw new NotFoundException('Lineup not found');
+    const booking = await this.repo.deleteLineup(bookingId, lineupId);
+    return this.mapBooking(booking!);
+  }
+
+  // Every segment a write names must belong to this booking before any of it is written — a
+  // foreign or stale Package id must 404, never silently link (ADR-0061).
+  private async assertPackagesBelongToBooking(userId: string, bookingId: string, packageIds: string[]) {
+    for (const packageId of packageIds) {
+      const pkg = await this.repo.findBookingPackage(userId, bookingId, packageId);
+      if (!pkg) throw new NotFoundException('Package not found');
+    }
+  }
+
+  // #987: a chair names its Lineup, not its segment (ADR-0081 §1). Omitted, the repository starts
+  // a fresh unnamed Lineup — the musician with no lineup templates adding one part at a time (#884).
   async addChair(userId: string, bookingId: string, dto: CreateChairDto) {
     await this.assertOwnership(userId, bookingId);
-    if (dto.packageId) {
-      const pkg = await this.repo.findBookingPackage(userId, bookingId, dto.packageId);
-      if (!pkg) throw new NotFoundException('Package not found');
+    if (dto.lineupId) {
+      const lineup = await this.repo.findLineup(userId, bookingId, dto.lineupId);
+      if (!lineup) throw new NotFoundException('Lineup not found');
     }
     return this.repo.addChair(userId, bookingId, dto);
   }

@@ -199,7 +199,6 @@ export function BookingDetailDesktop({ bookingId }: BookingDetailDesktopProps) {
         {bandMembersEnabled && (
           <BandCard
             band={booking.band}
-            packages={booking.packages}
             hasLineupTemplates={lineupTemplates.length > 0}
             linkState={backState}
           />
