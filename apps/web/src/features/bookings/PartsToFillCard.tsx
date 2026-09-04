@@ -132,11 +132,16 @@ export function PartsToFillCard({
       ) : (
         <div>
           {vacantChairs.map((chair) => (
-            <div key={chair.id} className="pb-2 last:pb-0">
+            // The divider belongs below the picker, not between the row and its own picker — a
+            // vacant part and its "fill this" control are one unit, so PartRow's own border (from
+            // LabelValue) is switched off here and moved to this wrapper instead.
+            <div key={chair.id} className="pb-3 border-b border-border last:border-0 last:pb-0">
               <PartRow
                 role={chair.role}
                 callTime={chair.callTime}
+                segmentLabel={chair.segmentLabel}
                 bandName={nameBands ? lineupLabel(chair.lineupId) : undefined}
+                bordered={false}
                 action={
                   <IconButton
                     label={`Remove the ${chair.role} part`}

@@ -205,6 +205,8 @@ export interface BookingLineup {
 // null`, a first-class thing the musician looks at, not an absence — assignment (#885) never
 // creates or destroys a chair row, it sets this field. `callTime` is derived server-side from the
 // Lineup's segments' earliest PerformanceSet.startTime; absent (null), not zero, when none has one.
+// `segmentLabel` is the Package that produced it (e.g. "Wedding Ceremony"), derived alongside it;
+// null for a package-less/whole-day segment.
 export interface BookingBandChair {
   id: string;
   role: string;
@@ -212,6 +214,7 @@ export interface BookingBandChair {
   lineupId: string;
   memberId: string | null;
   callTime: string | null;
+  segmentLabel: string | null;
 }
 
 // ADR-0072 §5: ADDED -> INVITED -> CONFIRMED | DECLINED. ADDED -> CONFIRMED is legal — confirming

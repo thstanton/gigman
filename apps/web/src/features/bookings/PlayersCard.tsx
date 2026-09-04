@@ -98,6 +98,7 @@ export function PlayersCard({
                     key={chair.id}
                     role={chair.role}
                     callTime={chair.callTime}
+                    segmentLabel={chair.segmentLabel}
                     bandName={nameBands ? lineupLabel(chair.lineupId) : undefined}
                     action={
                       <IconButton
