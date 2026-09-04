@@ -2,13 +2,7 @@ import { useState } from 'react';
 import { EllipsisVertical } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { SubLabel } from '@/components/common/SubLabel';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
+import { ActionMenu, type ActionMenuItem } from '@/components/common/ActionMenu';
 
 export interface CardMenuItem {
   label: string;
@@ -34,78 +28,38 @@ interface CardProps {
   children: React.ReactNode;
 }
 
-/** Label + optional helper line, shared by the desktop dropdown and the mobile sheet. */
-function MenuItemLabel({ item }: { item: CardMenuItem }) {
-  if (!item.description) return <span>{item.label}</span>;
-  return (
-    <span className="flex flex-col gap-0.5">
-      <span>{item.label}</span>
-      <span className="text-xs font-normal text-muted">{item.description}</span>
-    </span>
-  );
-}
-
 /**
  * Header overflow menu: a vertical-ellipsis trigger that opens a dropdown on desktop and a
- * bottom sheet on mobile (mirroring RowActions' responsive pattern, without the row-level
- * confirmation / pending semantics).
+ * bottom sheet on mobile. No row-level confirmation / pending semantics — every item just
+ * closes the sheet and fires.
  */
 function CardMenu({ items, label }: { items: CardMenuItem[]; label?: string }) {
   const [sheetOpen, setSheetOpen] = useState(false);
 
-  return (
-    <>
-      {/* Mobile: ellipsis opens a bottom sheet (40px tap target, icon stays 16px) */}
-      <button
-        type="button"
-        aria-label="Actions"
-        className="-mr-1.5 flex h-10 w-10 items-center justify-center text-muted transition-colors hover:text-foreground md:hidden"
-        onClick={() => setSheetOpen(true)}
-      >
-        <EllipsisVertical size={16} />
-      </button>
-      <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
-        <SheetContent side="bottom" className="border-t-0">
-          <SheetTitle className={label ? undefined : 'sr-only'}>{label ?? 'Actions'}</SheetTitle>
-          <div className={`space-y-1${label ? ' mt-3' : ''}`}>
-            {items.map((item) => (
-              <button
-                key={item.label}
-                type="button"
-                className="flex w-full items-center gap-3 rounded-md px-3 py-3 text-left hover:bg-accent"
-                onClick={() => {
-                  setSheetOpen(false);
-                  item.onClick();
-                }}
-              >
-                {item.icon}
-                <MenuItemLabel item={item} />
-              </button>
-            ))}
-          </div>
-        </SheetContent>
-      </Sheet>
+  const menuItems: ActionMenuItem[] = items.map((item) => ({
+    label: item.label,
+    description: item.description,
+    icon: item.icon,
+    onClick: () => {
+      setSheetOpen(false);
+      item.onClick();
+    },
+  }));
 
-      {/* Desktop: ellipsis dropdown */}
-      <div className="hidden md:block">
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            aria-label="More actions"
-            className="text-muted transition-colors hover:text-foreground"
-          >
-            <EllipsisVertical size={16} />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            {items.map((item) => (
-              <DropdownMenuItem key={item.label} onClick={item.onClick}>
-                {item.icon}
-                <MenuItemLabel item={item} />
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
-    </>
+  return (
+    <ActionMenu
+      sheetItems={menuItems}
+      dropdownItems={menuItems}
+      sheetTitle={label}
+      sheetOpen={sheetOpen}
+      onSheetOpenChange={setSheetOpen}
+      mobileTrigger={{
+        icon: <EllipsisVertical size={16} />,
+        ariaLabel: 'Actions',
+        className: '-mr-1.5 flex h-10 w-10 items-center justify-center',
+      }}
+      desktopTrigger={{ icon: <EllipsisVertical size={16} />, ariaLabel: 'More actions' }}
+    />
   );
 }
 
