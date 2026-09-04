@@ -56,6 +56,60 @@ export class UpdateUserProfileDto {
   @IsString()
   placeId?: string | null;
 
+  @ApiPropertyOptional({ example: '123 High Street', nullable: true, type: String, description: 'Travel Base — where the musician sets off from for gigs (ADR-0082)' })
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null)
+  @IsString()
+  travelBaseAddressLine1?: string | null;
+
+  @ApiPropertyOptional({ nullable: true, type: String })
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null)
+  @IsString()
+  travelBaseAddressLine2?: string | null;
+
+  @ApiPropertyOptional({ example: 'London', nullable: true, type: String })
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null)
+  @IsString()
+  travelBaseCity?: string | null;
+
+  @ApiPropertyOptional({ example: 'Greater London', nullable: true, type: String })
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null)
+  @IsString()
+  travelBaseCounty?: string | null;
+
+  @ApiPropertyOptional({ example: 'SW1A 1AA', nullable: true, type: String })
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null)
+  @IsString()
+  travelBasePostcode?: string | null;
+
+  @ApiPropertyOptional({ example: 'GB', nullable: true, type: String })
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null)
+  @IsString()
+  travelBaseCountry?: string | null;
+
+  @ApiPropertyOptional({ example: 51.5014, nullable: true, type: Number })
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null)
+  @IsNumber()
+  travelBaseLatitude?: number | null;
+
+  @ApiPropertyOptional({ example: -0.1419, nullable: true, type: Number })
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null)
+  @IsNumber()
+  travelBaseLongitude?: number | null;
+
+  @ApiPropertyOptional({ example: 'ChIJdd4hrwug2EcRmSrV3Vo6llI', nullable: true, type: String })
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null)
+  @IsString()
+  travelBasePlaceId?: string | null;
+
   @ApiPropertyOptional({ nullable: true })
   @IsOptional()
   @ValidateIf((_, v) => v !== null)

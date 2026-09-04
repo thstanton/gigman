@@ -83,9 +83,9 @@ describe('UserProfileRepository', () => {
       expect(written).toBeNull();
     });
 
-    it('clears travel time on all contacts when an address field is updated', async () => {
+    it('clears travel time on all contacts when a Travel Base field is updated', async () => {
       prisma.userProfile.upsert.mockResolvedValue({ userId: 'u1', bankDetails: null });
-      await repo.updateByUserId('u1', { latitude: 51.5 });
+      await repo.updateByUserId('u1', { travelBaseLatitude: 51.5 });
       expect(prisma.contact.updateMany).toHaveBeenCalledWith({
         where: { userId: 'u1' },
         data: {
@@ -95,6 +95,12 @@ describe('UserProfileRepository', () => {
           travelMode: null,
         },
       });
+    });
+
+    it('does not clear travel time when the business address is updated (ADR-0082)', async () => {
+      prisma.userProfile.upsert.mockResolvedValue({ userId: 'u1', bankDetails: null });
+      await repo.updateByUserId('u1', { latitude: 51.5, addressLine1: '123 Main St' });
+      expect(prisma.contact.updateMany).not.toHaveBeenCalled();
     });
 
     it('does not clear travel time when no address field is updated', async () => {

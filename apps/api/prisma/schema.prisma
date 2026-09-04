@@ -82,6 +82,16 @@ model UserProfile {
   longitude    Float?
   placeId      String?
 
+  travelBaseAddressLine1 String?
+  travelBaseAddressLine2 String?
+  travelBaseCity         String?
+  travelBaseCounty       String?
+  travelBasePostcode     String?
+  travelBaseCountry      String?
+  travelBaseLatitude     Float?
+  travelBaseLongitude    Float?
+  travelBasePlaceId      String?
+
   bankDetails             String?
   vatNumber               String?
   vatRate                 Int     @default(20)
