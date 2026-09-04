@@ -1,11 +1,6 @@
 import { useState, useEffect } from 'react';
 import { ChevronRight, MoreHorizontal } from 'lucide-react';
 import {
-  Sheet,
-  SheetContent,
-  SheetTitle,
-} from '@/components/ui/sheet';
-import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -13,15 +8,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/button';
-import { Separator } from '@/components/ui/separator';
+import { ActionMenu, type ActionMenuItem } from '@/components/common/ActionMenu';
 
 export interface RowAction {
   label: string;
@@ -45,8 +33,6 @@ export function RowActions({ actions, label, sublabel }: Props) {
   const [dialogOpen, setDialogOpen] = useState(false);
 
   const primaryAction = actions[0];
-  const defaultActions = actions.filter((a) => a.variant !== 'destructive');
-  const destructiveActions = actions.filter((a) => a.variant === 'destructive');
 
   // Derive current action from label so isPending stays fresh across renders
   const confirmingAction = confirmingLabel
@@ -126,135 +112,69 @@ export function RowActions({ actions, label, sublabel }: Props) {
     setDialogOpen(open);
   }
 
+  function toMenuItem(action: RowAction, onClick: () => void): ActionMenuItem {
+    return {
+      label: action.isPending ? '…' : action.label,
+      icon: action.icon,
+      onClick,
+      disabled: action.isPending,
+      variant: action.variant,
+    };
+  }
+
+  const sheetItems = actions.map((action) => toMenuItem(action, () => handleSheetAction(action)));
+  const dropdownItems = actions.map((action) =>
+    toMenuItem(action, () => handleDropdownAction(action))
+  );
+
+  const sheetBody = confirmingAction ? (
+    <div className="space-y-4 pb-2">
+      <p className="font-semibold">{confirmingAction.confirmation!.title}</p>
+      <p className="text-sm text-muted">{confirmingAction.confirmation!.description}</p>
+      <div className="flex gap-2">
+        <Button
+          variant="outline"
+          disabled={isConfirmPending}
+          onClick={() => {
+            setConfirmingLabel(null);
+            setConfirmFired(false);
+          }}
+        >
+          Cancel
+        </Button>
+        <Button variant="destructive" disabled={isConfirmPending} onClick={handleConfirmInSheet}>
+          {isConfirmPending ? '…' : 'Confirm'}
+        </Button>
+      </div>
+    </div>
+  ) : undefined;
+
   return (
     <>
-      {/* Mobile: ChevronRight tap target */}
-      <button
-        type="button"
-        aria-label="Actions"
-        className="text-muted transition-colors hover:text-foreground md:hidden"
-        onClick={() => setSheetOpen(true)}
-      >
-        <ChevronRight size={16} />
-      </button>
-
-      {/* Mobile bottom sheet */}
-      <Sheet open={sheetOpen} onOpenChange={handleSheetOpenChange}>
-        <SheetContent side="bottom" className="border-t-0">
-          <SheetTitle className={label ? undefined : 'sr-only'}>
-            {label ?? 'Actions'}
-          </SheetTitle>
-          {label && sublabel && (
-            <p className="text-sm text-muted">{sublabel}</p>
-          )}
-          {confirmingAction ? (
-            <div className={`space-y-4 pb-2${label ? ' mt-3' : ''}`}>
-              <p className="font-semibold">{confirmingAction.confirmation!.title}</p>
-              <p className="text-sm text-muted">
-                {confirmingAction.confirmation!.description}
-              </p>
-              <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  disabled={isConfirmPending}
-                  onClick={() => {
-                    setConfirmingLabel(null);
-                    setConfirmFired(false);
-                  }}
-                >
-                  Cancel
-                </Button>
-                <Button variant="destructive" disabled={isConfirmPending} onClick={handleConfirmInSheet}>
-                  {isConfirmPending ? '…' : 'Confirm'}
-                </Button>
-              </div>
-            </div>
-          ) : (
-            <div className={`space-y-1${label ? ' mt-3' : ''}`}>
-              {defaultActions.map((action) => (
-                <button
-                  key={action.label}
-                  type="button"
-                  disabled={action.isPending}
-                  className="flex w-full items-center gap-3 rounded-md px-3 py-3 text-left hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
-                  onClick={() => handleSheetAction(action)}
-                >
-                  {action.icon}
-                  <span>{action.isPending ? '…' : action.label}</span>
-                </button>
-              ))}
-              {destructiveActions.length > 0 && (
-                <>
-                  <Separator />
-                  {destructiveActions.map((action) => (
-                    <button
-                      key={action.label}
-                      type="button"
-                      disabled={action.isPending}
-                      className="flex w-full items-center gap-3 rounded-md px-3 py-3 text-left text-destructive hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
-                      onClick={() => handleSheetAction(action)}
-                    >
-                      {action.icon}
-                      <span>{action.isPending ? '…' : action.label}</span>
-                    </button>
-                  ))}
-                </>
-              )}
-            </div>
-          )}
-        </SheetContent>
-      </Sheet>
-
-      {/* Desktop: primary icon shortcut + overflow dropdown */}
-      <div className="hidden items-center gap-1 md:flex">
-        {primaryAction?.icon && (
-          <button
-            type="button"
-            aria-label={primaryAction.label}
-            disabled={primaryAction.isPending}
-            className="text-muted transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
-            onClick={() => handleDropdownAction(primaryAction)}
-          >
-            {primaryAction.icon}
-          </button>
-        )}
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            aria-label="More actions"
-            className="text-muted transition-colors hover:text-foreground"
-          >
-            <MoreHorizontal size={16} />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            {defaultActions.map((action) => (
-              <DropdownMenuItem
-                key={action.label}
-                disabled={action.isPending}
-                onClick={() => handleDropdownAction(action)}
-              >
-                {action.icon}
-                {action.isPending ? '…' : action.label}
-              </DropdownMenuItem>
-            ))}
-            {destructiveActions.length > 0 && (
-              <>
-                <DropdownMenuSeparator />
-                {destructiveActions.map((action) => (
-                  <DropdownMenuItem
-                    key={action.label}
-                    disabled={action.isPending}
-                    className="text-destructive focus:text-destructive"
-                    onClick={() => handleDropdownAction(action)}
-                  >
-                    {action.icon}
-                    {action.isPending ? '…' : action.label}
-                  </DropdownMenuItem>
-                ))}
-              </>
-            )}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
+      <ActionMenu
+        sheetItems={sheetItems}
+        dropdownItems={dropdownItems}
+        sheetTitle={label}
+        sheetSublabel={sublabel}
+        sheetOpen={sheetOpen}
+        onSheetOpenChange={handleSheetOpenChange}
+        sheetBody={sheetBody}
+        mobileTrigger={{ icon: <ChevronRight size={16} />, ariaLabel: 'Actions' }}
+        desktopTrigger={{ icon: <MoreHorizontal size={16} />, ariaLabel: 'More actions' }}
+        desktopLeadingContent={
+          primaryAction?.icon && (
+            <button
+              type="button"
+              aria-label={primaryAction.label}
+              disabled={primaryAction.isPending}
+              className="text-muted transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+              onClick={() => handleDropdownAction(primaryAction)}
+            >
+              {primaryAction.icon}
+            </button>
+          )
+        }
+      />
 
       {/* Desktop confirmation dialog (the dropdown trigger is desktop-only) */}
       <Dialog open={dialogOpen} onOpenChange={handleDialogOpenChange}>
