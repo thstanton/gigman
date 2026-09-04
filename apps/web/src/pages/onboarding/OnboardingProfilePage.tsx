@@ -33,6 +33,34 @@ function hasAddress(a: AddressFields): boolean {
   return Boolean(a.addressLine1.trim() || a.city.trim() || a.postcode.trim() || a.placeId);
 }
 
+function toBusinessAddressPayload(a: AddressFields): Partial<UserProfile> {
+  return {
+    addressLine1: a.addressLine1 || null,
+    addressLine2: a.addressLine2 || null,
+    city: a.city || null,
+    county: a.county || null,
+    postcode: a.postcode || null,
+    country: a.country || null,
+    latitude: a.latitude,
+    longitude: a.longitude,
+    placeId: a.placeId,
+  };
+}
+
+function toTravelBasePayload(a: AddressFields): Partial<UserProfile> {
+  return {
+    travelBaseAddressLine1: a.addressLine1 || null,
+    travelBaseAddressLine2: a.addressLine2 || null,
+    travelBaseCity: a.city || null,
+    travelBaseCounty: a.county || null,
+    travelBasePostcode: a.postcode || null,
+    travelBaseCountry: a.country || null,
+    travelBaseLatitude: a.latitude,
+    travelBaseLongitude: a.longitude,
+    travelBasePlaceId: a.placeId,
+  };
+}
+
 const schema = z.object({
   businessName: z.string().min(1, 'Business name is required'),
   displayName: z.string().optional(),
@@ -41,6 +69,27 @@ const schema = z.object({
 });
 
 type FormValues = z.infer<typeof schema>;
+
+// Step 1 spans two models: identity → PATCH /me/public (PublicProfile); the optional
+// address → PATCH /me (UserProfile). A musician doesn't yet distinguish a business
+// address from a Travel Base (PRD #478's friction-reduction intent), so the one value
+// given here is written to both — the same rule ADR-0082's migration applies to
+// existing users. The write only fires when an address was actually provided, so
+// leaving it blank never blocks the step.
+async function saveProfile(data: FormValues, address: AddressFields): Promise<void> {
+  await apiPatch<PublicProfile>('/me/public', {
+    businessName: data.businessName,
+    displayName: data.displayName || null,
+    email: data.email || null,
+    phone: data.phone || null,
+  });
+  if (hasAddress(address)) {
+    await apiPatch<UserProfile>('/me', {
+      ...toBusinessAddressPayload(address),
+      ...toTravelBasePayload(address),
+    });
+  }
+}
 
 export default function OnboardingProfilePage() {
   const navigate = useNavigate();
@@ -65,31 +114,8 @@ export default function OnboardingProfilePage() {
     },
   });
 
-  // Step 1 spans two models: identity → PATCH /me/public (PublicProfile); the optional
-  // business address → PATCH /me (UserProfile). The address write only fires when an
-  // address was actually provided, so leaving it blank never blocks the step.
   const { mutate, isPending } = useMutation({
-    mutationFn: async (data: FormValues) => {
-      await apiPatch<PublicProfile>('/me/public', {
-        businessName: data.businessName,
-        displayName: data.displayName || null,
-        email: data.email || null,
-        phone: data.phone || null,
-      });
-      if (hasAddress(address)) {
-        await apiPatch<UserProfile>('/me', {
-          addressLine1: address.addressLine1 || null,
-          addressLine2: address.addressLine2 || null,
-          city: address.city || null,
-          county: address.county || null,
-          postcode: address.postcode || null,
-          country: address.country || null,
-          latitude: address.latitude,
-          longitude: address.longitude,
-          placeId: address.placeId,
-        });
-      }
-    },
+    mutationFn: (data: FormValues) => saveProfile(data, address),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['public-profile'] });
       queryClient.invalidateQueries({ queryKey: ['me'] });
@@ -144,7 +170,7 @@ export default function OnboardingProfilePage() {
 
         <FormField
           label="Your business address"
-          hint="Optional. Shown on your invoices and contracts, and used to estimate travel time to venues."
+          hint="Optional. Shown on your invoices, and used to estimate travel time to venues. You can set these separately later in Settings."
         >
           <AddressAutocomplete value={address} onChange={setAddress} />
         </FormField>

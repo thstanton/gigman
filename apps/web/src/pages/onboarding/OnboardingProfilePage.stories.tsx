@@ -17,10 +17,14 @@ export const Default: Story = {
   play: async ({ canvas }) => {
     await expect((await canvas.findAllByText('Set up your business'))[0]).toBeVisible();
     await expect((await canvas.findAllByPlaceholderText(/Smith String Quartet/i))[0]).toBeVisible();
-    // New in #660: purpose-helper text + the optional business-address field.
+    // #1019: the hint no longer claims the address appears on contracts, and now says
+    // the single value also seeds the Travel Base and can be changed separately in Settings.
     await expect((await canvas.findAllByText('Your business address'))[0]).toBeVisible();
     await expect(
       (await canvas.findAllByText(/used to estimate travel time to venues/i))[0],
+    ).toBeVisible();
+    await expect(
+      (await canvas.findAllByText(/set these separately later in Settings/i))[0],
     ).toBeVisible();
   },
 };

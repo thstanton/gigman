@@ -29,6 +29,12 @@ test.describe('onboarding flow', () => {
       where: { userId: E2E_TEST_USER_ID },
       data: { clientPortalConfig: Prisma.JsonNull },
     });
+    // #1019: Step 1's address write lands on both models — clear both so the baseline
+    // profile stays addressless for later authed specs.
+    await prisma.userProfile.updateMany({
+      where: { userId: E2E_TEST_USER_ID },
+      data: { addressLine1: null, travelBaseAddressLine1: null },
+    });
     await restoreOnboardingComplete();
   });
 
@@ -37,16 +43,26 @@ test.describe('onboarding flow', () => {
   });
 
   test('walk all five steps → create real artifacts → land in the app', async ({ page }) => {
+    // Block the Google Places script: this env's Maps key/network access isn't guaranteed, and the
+    // address field's manual-entry fallback (same fields either way) is what makes Step 1 deterministic.
+    await page.route('https://maps.googleapis.com/**', (route) => route.abort());
+
     // --- Step 1 — Business (required). Being on this page proves the incomplete-gate kept us here. ---
     await page.goto('/onboarding/profile');
     await expect(page.getByRole('heading', { name: 'Set up your business', level: 1 })).toBeVisible();
     // Fill the required field with the baseline value → exercises PATCH /me/public without drifting the
     // shared PublicProfile identity that invoice-PDF specs rely on.
     await page.getByLabel('Business name').fill('E2E Test Band');
+    // #1019: the one address given here must land on BOTH the business address and the Travel Base.
+    await page.getByPlaceholder('123 High Street').fill('42 Test Street');
     await page.getByRole('button', { name: 'Next' }).click();
 
     // --- Step 2 — Bookings orientation (no required input; advance). ---
     await expect(page.getByRole('heading', { name: 'How GigLoop runs your bookings', level: 1 })).toBeVisible();
+    // DB: Step 1's single address wrote to both models (#1019) — never just one.
+    const profileAfterStep1 = await prisma.userProfile.findUnique({ where: { userId: E2E_TEST_USER_ID } });
+    expect(profileAfterStep1?.addressLine1).toBe('42 Test Street');
+    expect(profileAfterStep1?.travelBaseAddressLine1).toBe('42 Test Street');
     await page.getByRole('button', { name: 'Next' }).click();
 
     // --- Step 3 — configure ONE Package Template from a catalogue starter. ---
@@ -82,5 +98,18 @@ test.describe('onboarding flow', () => {
       .toBe(1);
     const profile = await prisma.userProfile.findUnique({ where: { userId: E2E_TEST_USER_ID } });
     expect(profile?.onboardingCompletedAt).not.toBeNull();
+  });
+
+  test('Step 1 with no address writes neither field and still advances', async ({ page }) => {
+    await page.goto('/onboarding/profile');
+    await expect(page.getByRole('heading', { name: 'Set up your business', level: 1 })).toBeVisible();
+    await page.getByLabel('Business name').fill('E2E Test Band');
+    await page.getByRole('button', { name: 'Next' }).click();
+
+    // Leaving the address blank must not block the step (#1019).
+    await expect(page.getByRole('heading', { name: 'How GigLoop runs your bookings', level: 1 })).toBeVisible();
+    const profile = await prisma.userProfile.findUnique({ where: { userId: E2E_TEST_USER_ID } });
+    expect(profile?.addressLine1).toBeNull();
+    expect(profile?.travelBaseAddressLine1).toBeNull();
   });
 });
