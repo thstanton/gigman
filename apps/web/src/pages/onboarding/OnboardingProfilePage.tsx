@@ -70,6 +70,27 @@ const schema = z.object({
 
 type FormValues = z.infer<typeof schema>;
 
+// Step 1 spans two models: identity → PATCH /me/public (PublicProfile); the optional
+// address → PATCH /me (UserProfile). A musician doesn't yet distinguish a business
+// address from a Travel Base (PRD #478's friction-reduction intent), so the one value
+// given here is written to both — the same rule ADR-0082's migration applies to
+// existing users. The write only fires when an address was actually provided, so
+// leaving it blank never blocks the step.
+async function saveProfile(data: FormValues, address: AddressFields): Promise<void> {
+  await apiPatch<PublicProfile>('/me/public', {
+    businessName: data.businessName,
+    displayName: data.displayName || null,
+    email: data.email || null,
+    phone: data.phone || null,
+  });
+  if (hasAddress(address)) {
+    await apiPatch<UserProfile>('/me', {
+      ...toBusinessAddressPayload(address),
+      ...toTravelBasePayload(address),
+    });
+  }
+}
+
 export default function OnboardingProfilePage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -93,27 +114,8 @@ export default function OnboardingProfilePage() {
     },
   });
 
-  // Step 1 spans two models: identity → PATCH /me/public (PublicProfile); the optional
-  // address → PATCH /me (UserProfile). A musician doesn't yet distinguish a business
-  // address from a Travel Base (PRD #478's friction-reduction intent), so the one value
-  // given here is written to both — the same rule ADR-0082's migration applies to
-  // existing users. The write only fires when an address was actually provided, so
-  // leaving it blank never blocks the step.
   const { mutate, isPending } = useMutation({
-    mutationFn: async (data: FormValues) => {
-      await apiPatch<PublicProfile>('/me/public', {
-        businessName: data.businessName,
-        displayName: data.displayName || null,
-        email: data.email || null,
-        phone: data.phone || null,
-      });
-      if (hasAddress(address)) {
-        await apiPatch<UserProfile>('/me', {
-          ...toBusinessAddressPayload(address),
-          ...toTravelBasePayload(address),
-        });
-      }
-    },
+    mutationFn: (data: FormValues) => saveProfile(data, address),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['public-profile'] });
       queryClient.invalidateQueries({ queryKey: ['me'] });
