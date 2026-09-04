@@ -304,8 +304,10 @@ export const PACKAGE_CATEGORY_ORDER: EventType[] = EVENT_TYPE_ROWS.map((row) => 
 // vocabulary) — previously hand-written a second time inside InvoiceStatusPill,
 // with no compile-time proof every status was covered. Mirrors the booking-status
 // table's shape; see its header comment above for the colour-column contract.
-// VOID is the one row off the `status-<slug>` stem (bg-muted/text-muted/border-l-muted)
-// — a deliberately neutral, not-a-lifecycle-colour treatment. (#916)
+// VOID is the one row off the `status-<slug>` stem (bg-muted/text-void/border-l-muted)
+// — a deliberately neutral, not-a-lifecycle-colour treatment. (#916). Text uses the
+// VOID-specific `text-void` token, not `text-muted` — text-muted on its own bg-muted
+// wash fails AA contrast (see ADR-0039's "Amended by #977"; fixed by #1004).
 export interface InvoiceStatusRow {
   value: InvoiceStatus;
   label: string;
@@ -319,7 +321,7 @@ const INVOICE_STATUSES = [
   { value: 'ISSUED', label: 'Issued', tint: 'bg-status-enquiry/15',     text: 'text-status-enquiry',     borderL: 'border-l-status-enquiry'     },
   { value: 'SENT',   label: 'Sent',   tint: 'bg-status-provisional/15', text: 'text-status-provisional', borderL: 'border-l-status-provisional' },
   { value: 'PAID',   label: 'Paid',   tint: 'bg-status-confirmed/15',   text: 'text-status-confirmed',   borderL: 'border-l-status-confirmed'   },
-  { value: 'VOID',   label: 'Void',   tint: 'bg-muted/40',              text: 'text-muted',              borderL: 'border-l-muted'              },
+  { value: 'VOID',   label: 'Void',   tint: 'bg-muted/40',              text: 'text-void',               borderL: 'border-l-muted'              },
 ] as const satisfies readonly InvoiceStatusRow[];
 
 export type _InvoiceStatusCoverage = AssertNever<

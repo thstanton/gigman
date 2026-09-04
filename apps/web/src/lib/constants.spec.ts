@@ -25,7 +25,7 @@ import {
   statusBefore,
   statusGte,
 } from './constants';
-import type { BookingStatus } from '@/types/api';
+import type { BookingStatus, InvoiceStatus } from '@/types/api';
 
 // Shape, never values (CLAUDE.md: one declaration per vocabulary). Asserting that
 // ENQUIRY's label is 'Enquiry' would make this file a second declaration of the
@@ -122,9 +122,18 @@ describe('lifecycle comparisons', () => {
 });
 
 // Shape, never values — same rationale as the booking status table above. VOID sits
-// off the `status-<slug>` stem (bg-muted/text-muted/border-l-muted), so the pattern
-// here also accepts a bare `muted` stem.
-const INVOICE_TOKEN_PATTERN = /^(bg|text|border-l)-(status-[a-z]+|muted)(\/\d+)?$/;
+// off the `status-<slug>` stem (bg-muted/text-void/border-l-muted), so the pattern
+// here also accepts the `muted` and `void` stems. `void` is VOID's own dedicated
+// text token (#1004) — darker than `muted` so VOID's label clears AA contrast on
+// top of its own translucent `bg-muted` wash; see ADR-0039's "Amended by #977".
+const INVOICE_TOKEN_PATTERN = /^(bg|text|border-l)-(status-[a-z]+|muted|void)(\/\d+)?$/;
+
+// VOID is the one row that deliberately breaks the "same stem" rule below: its
+// tint/border stay on `muted` (the wash), but its text uses the darker `void`
+// stem so the label is legible on that wash (#1004).
+const OFF_STEM_ROWS: Partial<Record<InvoiceStatus, { tint: string; text: string; borderL: string }>> = {
+  VOID: { tint: 'muted', text: 'void', borderL: 'muted' },
+};
 
 describe('invoice status table', () => {
   it('covers every status exactly once', () => {
@@ -146,10 +155,20 @@ describe('invoice status table', () => {
       for (const token of Object.values(tokens)) {
         expect(token).toMatch(INVOICE_TOKEN_PATTERN);
       }
-      // All three tokens share the same colour stem — a copy/paste slip between rows
-      // passes the pattern but not this.
-      const stems = Object.values(tokens).map((t) => t.replace(/^(bg|text|border-l)-/, '').split('/')[0]);
-      expect(new Set(stems).size).toBe(1);
+      const stems = {
+        tint: tokens.tint.replace(/^bg-/, '').split('/')[0],
+        text: tokens.text.replace(/^text-/, '').split('/')[0],
+        borderL: tokens.borderL.replace(/^border-l-/, '').split('/')[0],
+      };
+      const offStem = OFF_STEM_ROWS[status];
+      if (offStem) {
+        // VOID: documented exception (#1004) — asserted exactly, not just "not equal".
+        expect(stems).toEqual(offStem);
+      } else {
+        // Every other row: all three tokens share the same colour stem — a
+        // copy/paste slip between rows passes the pattern but not this.
+        expect(new Set(Object.values(stems)).size).toBe(1);
+      }
     }
   });
 

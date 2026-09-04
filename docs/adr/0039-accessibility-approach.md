@@ -63,7 +63,7 @@ Decorative Lucide icons in the navigation (`AppShell.tsx`) and the select chevro
 > deliberately left open is closed, and the `PageHeader` back-link special case
 > is no longer the only compliant use of the token.
 >
-> **A narrower gap remains, and is knowingly left open.** `text-muted` is also
+> **A narrower gap remained, and was knowingly left open.** `text-muted` is also
 > used on translucent washes of itself (`bg-muted/20`…`/50`, e.g. the VOID
 > contract row and the VOID invoice pill). Composited over `--surface` these
 > measure 3.93:1, 3.41:1, 2.94:1 and 2.52:1 — every one improved by the
@@ -75,6 +75,28 @@ Decorative Lucide icons in the navigation (`AppShell.tsx`) and the select chevro
 >
 > `--status-complete` retains the original `hsl(30 8% 48%)` and is now a
 > separate value; that decoupling is intended.
+>
+> **Resolved by #1004 (2026-09-04).** The two *live* cases of that narrower
+> gap — the VOID contract row (`bg-muted/20`) and the VOID invoice pill
+> (`bg-muted/40`) — are fixed by introducing a VOID-specific text token
+> rather than by touching `--muted` (which is used everywhere else and must
+> keep its current value) or by removing the wash (VOID is deliberately meant
+> to visually recede). `--void: hsl(30 8% 28%)` is declared once alongside
+> `--muted`, and both the contract-row and invoice-pill class maps reference
+> the same `text-void` utility instead of `text-muted`. Measured:
+>
+> | Background | `text-muted` (before, #977) | `text-void` (now, #1004) |
+> |---|---|---|
+> | contract row (`bg-muted/20` over `--surface`) | 3.93:1 | 6.35:1 |
+> | invoice pill (`bg-muted/40` over `--surface`) | 2.94:1 | 4.76:1 |
+>
+> Both now clear the 4.5:1 AA text threshold. `--void` stays meaningfully
+> lighter than `--foreground` (8.86:1 against the same invoice-pill
+> background), so VOID still reads as visually receded relative to normal
+> text — it is just legible. The remaining `/30` and `/50` washes named above
+> (3.41:1 and 2.52:1 respectively) were not a live `text-muted` UI use at the
+> time of #977 and are unaffected by this fix; treat them the same way if
+> either is ever paired with `text-muted` (or the new `text-void`) in future.
 
 ## Consequences
 

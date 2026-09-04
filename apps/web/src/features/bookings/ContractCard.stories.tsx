@@ -159,7 +159,11 @@ export const Void: Story = {
     },
   },
   play: async ({ canvas }) => {
-    await expect(canvas.getByText('Void')).toBeVisible();
+    const voidPill = canvas.getByText('Void');
+    await expect(voidPill).toBeVisible();
+    // #1004: VOID's label uses the darker text-void token, not text-muted — text-muted
+    // composited over VOID's own bg-muted/20 wash fails AA contrast.
+    await expect(voidPill).toHaveClass('text-void');
     await expect(canvas.getByText('Create contract')).toBeVisible();
   },
 };

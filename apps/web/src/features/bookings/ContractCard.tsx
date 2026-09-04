@@ -21,7 +21,9 @@ const CONTRACT_PILL_CLASSES: Record<string, string> = {
   DRAFT:  'bg-status-enquiry/15 text-status-enquiry border-l-status-enquiry',
   SENT:   'bg-status-confirmed/15 text-status-confirmed border-l-status-confirmed',
   SIGNED: 'bg-status-ready/15 text-status-ready border-l-status-ready',
-  VOID:   'bg-muted/20 text-muted border-l-muted',
+  // text-void (not text-muted): text-muted on its own bg-muted wash fails
+  // AA contrast — see ADR-0039's "Amended by #977", fixed by #1004.
+  VOID:   'bg-muted/20 text-void border-l-muted',
 };
 
 const CONTRACT_PILL_LABELS: Record<string, string> = {
