@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import type { BookingBandMemberStatus, BookingStatus, EventType, InvoiceStatus, PortalTheme, PortalVisibilityReason, ReminderConcern, SongGenre } from '@/types/api';
 import trumpeterFigure from '@/assets/musicians/trumpeter.png';
+import violinistFigure from '@/assets/musicians/violinist.png';
 
 export type ContactPrimaryRole = 'CUSTOMER' | 'VENUE' | 'BOOKING_AGENT' | 'BAND_MEMBER';
 
@@ -694,6 +695,7 @@ export interface MusicianFigureRow {
 
 const MUSICIAN_FIGURES = [
   { value: 'trumpeter', asset: trumpeterFigure, description: 'Trumpeter, standing, horn raised' },
+  { value: 'violinist', asset: violinistFigure, description: 'Violinist, standing, bow drawn' },
 ] as const satisfies readonly MusicianFigureRow[];
 
 export type MusicianFigure = (typeof MUSICIAN_FIGURES)[number]['value'];
