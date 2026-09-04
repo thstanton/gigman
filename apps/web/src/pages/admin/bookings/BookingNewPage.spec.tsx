@@ -7,6 +7,7 @@ import type { Control } from 'react-hook-form';
 import BookingNewPage from './BookingNewPage';
 import type { BookingFormValues } from '@/features/bookings/BookingFormFields';
 import * as api from '@/lib/api';
+import { isEnabled } from '@/lib/featureFlags';
 import type {
   BookingDetail,
   BookingStatus,
@@ -67,6 +68,11 @@ vi.mock('react-router-dom', async (importActual) => {
 });
 
 vi.mock('@/lib/api');
+
+// The band-members flag is a build-time VITE_ var Storybook/vitest have no value for (#978) — only
+// mockable by mocking the helper. Default false, matching the flag's default-off convention;
+// individual tests below flip it to exercise #989's lineup declarations.
+vi.mock('@/lib/featureFlags', () => ({ isEnabled: vi.fn(() => false) }));
 
 // Keep the real schema (the page's zodResolver depends on it); swap only the component for a double
 // wired to the live form control so the test can choose an existing or a new customer.
@@ -197,11 +203,12 @@ const createdBooking = {
   eventType: 'WEDDING',
 } as unknown as BookingDetail;
 
-function mockGet() {
+function mockGet(lineups: unknown[] = []) {
   vi.mocked(api.apiGet).mockImplementation((url: string) => {
     if (url === '/me') return Promise.resolve(userProfile);
     if (url === '/packages') return Promise.resolve([]);
     if (url === '/series') return Promise.resolve([]);
+    if (url === '/lineups') return Promise.resolve(lineups);
     if (url.startsWith('/bookings/checklist/reminders/preview')) return Promise.resolve([]);
     return Promise.reject(new Error(`Unexpected GET: ${url}`));
   });
@@ -287,6 +294,38 @@ describe('BookingNewPage — orchestration', () => {
     expect(screen.getByTestId('created-checkpoint')).toHaveTextContent('My Gig');
     await userEvent.click(screen.getByRole('button', { name: 'finish' }));
     expect(navigateSpy).toHaveBeenCalledWith('/admin/bookings/bk-1');
+  });
+
+  // #989's three-state contract at the container level — the pure grouping logic is unit-tested
+  // in lineupChoices.spec.ts; what's novel here is the wiring: does the page correctly resolve
+  // hasLineupTemplates from its own ['lineups'] query and pass it into buildLineupsPayload, so the
+  // boundary between "omitted" and "[]" lands right on the actual create payload.
+  describe('lineup declarations (#989)', () => {
+    it('omits `lineups` entirely when the musician has no lineup templates', async () => {
+      vi.mocked(api.apiPost).mockResolvedValue(createdBooking);
+      await renderWithLoadedProfile();
+
+      await userEvent.click(screen.getByRole('button', { name: 'pick-existing-customer' }));
+      await userEvent.click(screen.getByRole('button', { name: /next: reminders/i }));
+      await userEvent.click(screen.getByRole('button', { name: 'do-create' }));
+
+      await waitFor(() => expect(screen.getByTestId('created-checkpoint')).toBeInTheDocument());
+      expect(bookingPayload().lineups).toBeUndefined();
+    });
+
+    it('sends `lineups: []` ("Decide later") rather than omitting it, once the musician has lineup templates', async () => {
+      vi.mocked(isEnabled).mockReturnValue(true);
+      mockGet([{ id: 'l1', label: 'My four-piece', slots: [], createdAt: '2030-01-01T00:00:00Z', updatedAt: '2030-01-01T00:00:00Z' }]);
+      vi.mocked(api.apiPost).mockResolvedValue(createdBooking);
+      await renderWithLoadedProfile();
+
+      await userEvent.click(screen.getByRole('button', { name: 'pick-existing-customer' }));
+      await userEvent.click(screen.getByRole('button', { name: /next: reminders/i }));
+      await userEvent.click(screen.getByRole('button', { name: 'do-create' }));
+
+      await waitFor(() => expect(screen.getByTestId('created-checkpoint')).toBeInTheDocument());
+      expect(bookingPayload().lineups).toEqual([]);
+    });
   });
 
   // #755 — creating a package template without leaving the flow.
