@@ -66,8 +66,11 @@ export default function OnboardingProfilePage() {
   });
 
   // Step 1 spans two models: identity → PATCH /me/public (PublicProfile); the optional
-  // business address → PATCH /me (UserProfile). The address write only fires when an
-  // address was actually provided, so leaving it blank never blocks the step.
+  // address → PATCH /me (UserProfile). A musician doesn't yet distinguish a business
+  // address from a Travel Base (PRD #478's friction-reduction intent), so the one value
+  // given here is written to both — the same rule ADR-0082's migration applies to
+  // existing users. The write only fires when an address was actually provided, so
+  // leaving it blank never blocks the step.
   const { mutate, isPending } = useMutation({
     mutationFn: async (data: FormValues) => {
       await apiPatch<PublicProfile>('/me/public', {
@@ -87,6 +90,15 @@ export default function OnboardingProfilePage() {
           latitude: address.latitude,
           longitude: address.longitude,
           placeId: address.placeId,
+          travelBaseAddressLine1: address.addressLine1 || null,
+          travelBaseAddressLine2: address.addressLine2 || null,
+          travelBaseCity: address.city || null,
+          travelBaseCounty: address.county || null,
+          travelBasePostcode: address.postcode || null,
+          travelBaseCountry: address.country || null,
+          travelBaseLatitude: address.latitude,
+          travelBaseLongitude: address.longitude,
+          travelBasePlaceId: address.placeId,
         });
       }
     },
@@ -144,7 +156,7 @@ export default function OnboardingProfilePage() {
 
         <FormField
           label="Your business address"
-          hint="Optional. Shown on your invoices and contracts, and used to estimate travel time to venues."
+          hint="Optional. Shown on your invoices, and used to estimate travel time to venues. You can set these separately later in Settings."
         >
           <AddressAutocomplete value={address} onChange={setAddress} />
         </FormField>
