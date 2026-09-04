@@ -42,22 +42,28 @@ export interface PlaysLine {
 }
 
 /**
- * What a band plays, in one line. The empty link set is two different facts and the booking tells
- * them apart (ADR-0081 §4) — on a booking with no packages there is one bucket and the band plays
- * all of it; on a booking with packages it is a band parked with nothing to play yet.
+ * The "what a band plays" wording, owned once (one declaration per vocabulary) since it is needed
+ * against two different shapes: a persisted Lineup's segment labels here, and a create-time
+ * musician's declared choice against PackageTemplate labels (#989's `lineupChoices.ts`). The empty
+ * link set is two different facts and the caller tells them apart (ADR-0081 §4) — on a booking (or
+ * a create-time selection) with no packages there is one bucket and the band plays all of it; with
+ * packages present it is a band parked with nothing to play yet.
  */
+export function segmentsLine(labels: string[], hasPackages: boolean): PlaysLine {
+  if (labels.length) {
+    return { text: `Plays ${joinSegments(labels)}`, warning: false };
+  }
+  return hasPackages
+    ? { text: 'Plays nothing yet', warning: true }
+    : { text: 'Plays the whole gig', warning: false };
+}
+
+/** What a band plays, in one line, for a persisted Lineup. See `segmentsLine` for the wording. */
 export function playsLine(
   lineup: BookingLineup,
   packages: BookingPackageSummary[],
 ): PlaysLine {
-  const labels = lineupSegmentLabels(lineup, packages);
-  if (labels.length) {
-    const segments = joinSegments(labels);
-    return { text: `Plays ${segments}`, warning: false };
-  }
-  return packages.length
-    ? { text: 'Plays nothing yet', warning: true }
-    : { text: 'Plays the whole gig', warning: false };
+  return segmentsLine(lineupSegmentLabels(lineup, packages), packages.length > 0);
 }
 
 /** A band's parts, in seat order. `order` is per-Lineup (ADR-0081), never booking-wide. */
