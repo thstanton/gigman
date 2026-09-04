@@ -599,32 +599,15 @@ export class BookingsRepository {
     });
   }
 
-  // ADR-0081 §1: the only place a Lineup is looked up by segment rather than by id — adding one
-  // chair at a time (#884) offers the musician a segment, not a Lineup. Every Lineup this slice
-  // creates plays at most one segment (#987 makes many-to-many a UI reality), so the lookup is
-  // unambiguous today; #987 must replace this once a Lineup can play several segments at once, or
-  // "add a chair to Drinks" could silently seat someone in a band that also plays Reception.
-  private async findOrCreateLineupForSegment(
-    tx: Prisma.TransactionClient,
-    userId: string,
-    bookingId: string,
-    packageId: string | null,
-  ): Promise<string> {
-    const existing = packageId
-      ? await tx.lineup.findFirst({ where: { bookingId, packages: { some: { packageId } } }, select: { id: true } })
-      : await tx.lineup.findFirst({ where: { bookingId, packages: { none: {} } }, select: { id: true } });
-    if (existing) return existing.id;
-
-    const created = await tx.lineup.create({ data: { userId, bookingId } });
-    if (packageId) {
-      await tx.lineupPackage.create({ data: { userId, lineupId: created.id, packageId } });
-    }
-    return created.id;
-  }
-
+  // #987 retired `findOrCreateLineupForSegment`. A chair is seated in a Lineup, never in a segment
+  // (ADR-0081 §1: only an instance can be pointed at) — the old segment-keyed lookup could not say
+  // which band "add a chair to Drinks" meant once two of them played Drinks, and its `packages:
+  // { none: {} }` probe could no longer tell the whole-gig band from one that had just lost its
+  // last segment. The caller now names the Lineup; omitting it starts a fresh unnamed one.
   addChair(userId: string, bookingId: string, dto: CreateChairDto) {
     return this.prisma.$transaction(async (tx) => {
-      const lineupId = await this.findOrCreateLineupForSegment(tx, userId, bookingId, dto.packageId ?? null);
+      const lineupId =
+        dto.lineupId ?? (await tx.lineup.create({ data: { userId, bookingId }, select: { id: true } })).id;
       const chairCount = await tx.bookingBandChair.count({ where: { lineupId } });
       return tx.bookingBandChair.create({
         data: { userId, bookingId, lineupId, role: dto.role, order: chairCount + 1 },
@@ -721,37 +704,111 @@ export class BookingsRepository {
   // exactly as applying a package produces a Package + PerformanceSet rows: the template's label
   // and slots snapshot onto the new instance, provenance severed. `packageId` null degenerates to
   // a package-less/whole-day Lineup (no segment links) — one code path, no special case.
+  // #987: applying targets a *set* of segments, so a four-piece playing the drinks and the
+  // reception is one Lineup with four chairs and two links — four vacancies, four searches, four
+  // assignments, where the predecessor produced eight of each.
+  //
+  // The detach-then-sweep shape below is the whole reason journey ④ is safe. The predecessor
+  // deleted every Lineup linked to the target segment; generalised naively to a set, applying a
+  // solo to {Drinks} would have deleted a four-piece playing {Drinks, Reception} — destroying its
+  // reception seats, its people and their confirmations. Detaching only the targeted segments and
+  // sweeping only what is left playing nothing keeps AC 3 true by construction rather than as a
+  // separate branch, and "swap rather than stack" (#884) still falls out for the same-set case.
   async applyLineupTemplate(
     userId: string,
     bookingId: string,
     lineup: { label: string; slots: Array<{ role: string; order: number }> },
-    packageId: string | null,
+    packageIds: string[],
   ) {
     await this.prisma.$transaction(async (tx) => {
-      // Re-applying replaces the band playing this segment rather than adding a second one:
-      // "the musician can pick a different lineup" (#884) means the new pick swaps the whole band,
-      // it doesn't stack on top of the last one. Deleting the Lineup cascades its chairs and
-      // segment links. `packageId: null` is itself a segment (the package-less/whole-day one, i.e.
-      // a Lineup with no links) — one code path for both (ADR-0081 §4).
-      const existing = packageId
-        ? await tx.lineup.findMany({ where: { bookingId, packages: { some: { packageId } } }, select: { id: true } })
-        : await tx.lineup.findMany({ where: { bookingId, packages: { none: {} } }, select: { id: true } });
-      if (existing.length) {
-        await tx.lineup.deleteMany({
-          where: { id: { in: existing.map((l) => l.id) } }, // scoped-upstream: ids came from the query above, itself scoped to this bookingId — ownership already proven by service.applyLineupTemplate's assertOwnership (ADR-0061)
-        });
-      }
+      await this.displaceSegments(tx, bookingId, packageIds);
 
       const created = await tx.lineup.create({ data: { userId, bookingId, label: lineup.label } });
-      if (packageId) {
-        await tx.lineupPackage.create({ data: { userId, lineupId: created.id, packageId } });
-      }
+      await tx.lineupPackage.createMany({
+        data: packageIds.map((packageId) => ({ userId, lineupId: created.id, packageId })),
+      });
       // Chair `order` is per-Lineup (ADR-0081) — a brand-new Lineup always starts at 1.
       await tx.bookingBandChair.createMany({
         data: lineup.slots.map((slot, i) => ({ userId, bookingId, lineupId: created.id, order: i + 1, role: slot.role })),
       });
     });
 
+    return this.prisma.booking.findFirst({ where: { id: bookingId }, select: bookingDetailSelect });
+  }
+
+  // Takes a set of segments away from whatever Lineups currently play them, then deletes only those
+  // left playing nothing at all — a Lineup fully displaced by the new pick. One that keeps even one
+  // segment survives untouched, chairs, people and confirmations included.
+  //
+  // The empty set is two different facts, and which one it is depends on the booking (ADR-0081 §4;
+  // #983's story states 1 and 7 render them differently):
+  //   - a booking with no packages: `[]` IS the whole gig, the single bucket every chair sits in,
+  //     so re-applying there must swap the band out exactly as targeting a segment does;
+  //   - a booking with packages: `[]` means "plays nothing yet" — a parked Lineup. Applying another
+  //     parked Lineup displaces nothing, or adding a second band would silently destroy the first.
+  private async displaceSegments(
+    tx: Prisma.TransactionClient,
+    bookingId: string,
+    packageIds: string[],
+  ): Promise<void> {
+    if (!packageIds.length) {
+      const packageCount = await tx.package.count({ where: { bookingId } });
+      if (packageCount > 0) return; // parked, not the whole gig — displaces nothing
+      await tx.lineup.deleteMany({
+        where: { bookingId, packages: { none: {} } }, // scoped-upstream: bookingId ownership proven by service.applyLineupTemplate's assertOwnership (ADR-0061)
+      });
+      return;
+    }
+
+    const affected = await tx.lineup.findMany({
+      where: { bookingId, packages: { some: { packageId: { in: packageIds } } } },
+      select: { id: true, _count: { select: { packages: true } } },
+    });
+    if (!affected.length) return;
+
+    const affectedIds = affected.map((l) => l.id);
+    await tx.lineupPackage.deleteMany({ where: { lineupId: { in: affectedIds }, packageId: { in: packageIds } } });
+
+    // Fully displaced == every segment it played was targeted. Counting the links it held before
+    // the delete against how many of them were targeted avoids a second round-trip per Lineup.
+    const surrendered = await tx.lineupPackage.groupBy({ by: ['lineupId'], where: { lineupId: { in: affectedIds } }, _count: true });
+    const remaining = new Map(surrendered.map((row) => [row.lineupId, row._count]));
+    // groupBy omits a lineupId entirely once it holds no links, so an absent row means zero.
+    const displaced = affectedIds.filter((id) => (remaining.get(id) ?? 0) === 0);
+    if (displaced.length) {
+      // Deleting the Lineup cascades its chairs and its remaining links — this is #884's
+      // replace-semantics, reached only by a Lineup that now plays nothing.
+      await tx.lineup.deleteMany({
+        where: { id: { in: displaced } }, // scoped-upstream: ids came from the bookingId-scoped query above; ownership proven by service.applyLineupTemplate's assertOwnership (ADR-0061)
+      });
+    }
+  }
+
+  // #987 journey ④. Sets which segments a Lineup plays, replacing its whole link set. Chairs are
+  // never touched: a band losing the drinks set keeps its reception seats, its people, their tokens
+  // and their confirmations. Emptying the set leaves the Lineup standing — "plays nothing yet" is a
+  // state the musician looks at, not a reason to delete a band they built.
+  //
+  // Deliberately does NOT take the newly-claimed segments away from other Lineups. Two bands on one
+  // segment renders honestly on every surface, and a checkbox must never silently destroy a band
+  // the musician cannot see from here. Whether that invariant is wanted at all is #1020;
+  // it is not an AC of this issue.
+  async setLineupSegments(userId: string, bookingId: string, lineupId: string, packageIds: string[]) {
+    await this.prisma.$transaction(async (tx) => {
+      await tx.lineupPackage.deleteMany({ where: { lineupId } });
+      await tx.lineupPackage.createMany({
+        data: packageIds.map((packageId) => ({ userId, lineupId, packageId })),
+      });
+    });
+    return this.prisma.booking.findFirst({ where: { id: bookingId }, select: bookingDetailSelect });
+  }
+
+  // "Remove … from this booking" on the Lineups card (#983). Cascades the Lineup's chairs and
+  // links; the booking-scoped member rows survive, exactly as they do when a chair is deleted.
+  async deleteLineup(bookingId: string, lineupId: string) {
+    await this.prisma.lineup.deleteMany({
+      where: { id: lineupId }, // scoped-upstream: service.removeLineup calls findLineup(userId, bookingId, lineupId) first, already proving ownership (ADR-0061)
+    });
     return this.prisma.booking.findFirst({ where: { id: bookingId }, select: bookingDetailSelect });
   }
 

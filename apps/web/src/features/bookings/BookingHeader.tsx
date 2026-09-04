@@ -52,7 +52,9 @@ export function BookingHeader({
         <span className="text-sm text-muted">{formatDate(booking.date)}</span>
         {feeWithVat
           ? <span className="text-sm text-muted">{feeWithVat}</span>
-          : <InlineFeeAdd onSave={onFeeAdd} isSaving={isFeePending} />
+          // The booking fee is add-only here (this branch renders only when there is none);
+          // clearing is the session fee's case, so the null InlineFeeAdd can emit is guarded off.
+          : <InlineFeeAdd onSave={(fee) => fee !== null && onFeeAdd(fee)} isSaving={isFeePending} label="booking fee" />
         }
       </div>
     </section>

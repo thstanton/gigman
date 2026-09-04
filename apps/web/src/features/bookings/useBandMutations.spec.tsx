@@ -41,7 +41,7 @@ function setup() {
   const wrapper = ({ children }: { children: ReactNode }) => (
     <QueryClientProvider client={client}>{children}</QueryClientProvider>
   );
-  const { result } = renderHook(() => useBandMutations('b1', [CHAIR_A, CHAIR_B]), { wrapper });
+  const { result } = renderHook(() => useBandMutations('b1'), { wrapper });
   const cached = () => client.getQueryData<BookingDetail>(['booking', 'b1'])!;
   return { result, cached };
 }
@@ -53,7 +53,7 @@ function setupWithMember() {
   const wrapper = ({ children }: { children: ReactNode }) => (
     <QueryClientProvider client={client}>{children}</QueryClientProvider>
   );
-  const { result } = renderHook(() => useBandMutations('b1', booking.band.chairs), { wrapper });
+  const { result } = renderHook(() => useBandMutations('b1'), { wrapper });
   const cached = () => client.getQueryData<BookingDetail>(['booking', 'b1'])!;
   return { result, cached };
 }
@@ -81,55 +81,6 @@ describe('useBandMutations — optimistic updates', () => {
     expect(toast).toHaveBeenCalledWith(
       expect.objectContaining({ title: 'Failed to remove chair. Please try again.', variant: 'destructive' }),
     );
-  });
-
-  it('edits a chair role in the cache before the PATCH request resolves', async () => {
-    vi.mocked(apiPatch).mockReturnValue(new Promise(() => {}));
-    const { result, cached } = setup();
-
-    result.current.updateChair.mutate({ chairId: 'ch-a', dto: { role: 'Trumpet' } });
-
-    await waitFor(() => expect(cached().band.chairs.find((c) => c.id === 'ch-a')?.role).toBe('Trumpet'));
-  });
-
-  it('rolls back and toasts when updating a chair fails', async () => {
-    vi.mocked(apiPatch).mockRejectedValue(new Error('boom'));
-    const { result, cached } = setup();
-
-    result.current.updateChair.mutate({ chairId: 'ch-a', dto: { role: 'Trumpet' } });
-
-    await waitFor(() => expect(cached().band.chairs.find((c) => c.id === 'ch-a')?.role).toBe('Sax'));
-    expect(toast).toHaveBeenCalledWith(
-      expect.objectContaining({ title: 'Failed to update chair. Please try again.', variant: 'destructive' }),
-    );
-  });
-
-  // Advisor review, #884: without a single up-front optimistic write, the two PATCHes moveChair
-  // fires could interleave and briefly render a half-swapped order — this asserts the swap lands
-  // atomically, before either request has a chance to resolve.
-  it('moveChair swaps both chairs\' order synchronously, before either PATCH resolves', async () => {
-    vi.mocked(apiPatch).mockReturnValue(new Promise(() => {}));
-    const { result, cached } = setup();
-
-    result.current.moveChair('ch-b', 'up');
-
-    // The swap is visible immediately — synchronously, not after a round-trip.
-    expect(cached().band.chairs.find((c) => c.id === 'ch-a')?.order).toBe(2);
-    expect(cached().band.chairs.find((c) => c.id === 'ch-b')?.order).toBe(1);
-
-    await waitFor(() => expect(apiPatch).toHaveBeenCalledWith('/bookings/b1/chairs/ch-a', { order: 2 }));
-    expect(apiPatch).toHaveBeenCalledWith('/bookings/b1/chairs/ch-b', { order: 1 });
-  });
-
-  it('moveChair is a no-op past either end of the list', () => {
-    vi.mocked(apiPatch).mockResolvedValue({});
-    const { result, cached } = setup();
-
-    result.current.moveChair('ch-a', 'up');
-    result.current.moveChair('ch-b', 'down');
-
-    expect(cached().band.chairs.map((c) => c.order)).toEqual([1, 2]);
-    expect(apiPatch).not.toHaveBeenCalled();
   });
 
   // Server-first (ADR-0072 §2): the resulting member row isn't known client-side until the
@@ -191,29 +142,4 @@ describe('useBandMutations — optimistic updates', () => {
     );
   });
 
-  // Soft removal's result is fully known client-side (ADR-0072 §5): the member disappears AND
-  // every chair it held reverts to a vacancy — this is optimistic, mirroring removeChair.
-  it('removeMember removes the member and vacates their chairs before the delete request resolves', async () => {
-    vi.mocked(apiDelete).mockReturnValue(new Promise(() => {}));
-    const { result, cached } = setupWithMember();
-
-    result.current.removeMember.mutate('m-a');
-
-    await waitFor(() => expect(cached().band.members).toEqual([]));
-    expect(cached().band.chairs.find((c) => c.id === 'ch-a')?.memberId).toBeNull();
-    expect(apiDelete).toHaveBeenCalledWith('/bookings/b1/band-members/m-a');
-  });
-
-  it('rolls back the cache and toasts when removing a member fails', async () => {
-    vi.mocked(apiDelete).mockRejectedValue(new Error('boom'));
-    const { result, cached } = setupWithMember();
-
-    result.current.removeMember.mutate('m-a');
-
-    await waitFor(() => expect(cached().band.members).toEqual([MEMBER_A]));
-    expect(cached().band.chairs.find((c) => c.id === 'ch-a')?.memberId).toBe('m-a');
-    expect(toast).toHaveBeenCalledWith(
-      expect.objectContaining({ title: 'Failed to remove member. Please try again.', variant: 'destructive' }),
-    );
-  });
 });

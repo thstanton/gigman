@@ -7,13 +7,37 @@ import { EmptyState } from '@/components/common/EmptyState';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import FormatIcon from './FormatIcon';
-import { chairPackageId, segmentLabel } from './BandAtom';
+import { chairPackageIds } from './bandParts';
 import { LOGISTICS_FIELD_ICONS } from '@/lib/constants';
 import type { BookingBandChair, BookingBandMember, BookingLineup, BookingLogisticsEntry, BookingPackageSummary, PerformanceSet } from '@/types/api';
 
 type TimelineRow =
   | { kind: 'time'; rowKey: string; label: string; time: string; notes?: string; group: string }
   | { kind: 'set'; rowKey: string; set: PerformanceSet; group: string; pkg: BookingPackageSummary | null; startsRun: boolean };
+
+/**
+ * #987: a part plays EVERY segment its band plays, so it renders under every one of them. The
+ * Itinerary answers "who is on stage for this set", and a four-piece playing the drinks and the
+ * evening is on stage for both — listing them once under the first was today's behaviour by
+ * accident, and left the evening's roster reading as empty while a band was in fact playing it.
+ * An empty link set is the package-less/whole-gig bucket (ADR-0081 §4).
+ */
+function groupChairsBySegment(chairs: BookingBandChair[], lineups: BookingLineup[]) {
+  const chairsByPackageId = new Map<string, BookingBandChair[]>();
+  const wholeDayChairs: BookingBandChair[] = [];
+  for (const chair of chairs) {
+    const packageIds = chairPackageIds(chair, lineups);
+    if (!packageIds.length) wholeDayChairs.push(chair);
+    for (const packageId of packageIds) appendChair(chairsByPackageId, packageId, chair);
+  }
+  return { chairsByPackageId, wholeDayChairs };
+}
+
+function appendChair(buckets: Map<string, BookingBandChair[]>, key: string, chair: BookingBandChair) {
+  const bucket = buckets.get(key);
+  if (bucket) bucket.push(chair);
+  else buckets.set(key, [chair]);
+}
 
 interface ItineraryCardProps {
   logistics: Record<string, BookingLogisticsEntry> | null;
@@ -170,19 +194,7 @@ export default function ItineraryCard({
   }
 
   const memberById = new Map(bandMembers.map((m) => [m.id, m] as const));
-  // A chair's segment is its Lineup's first (at this slice, only) segment link — empty means
-  // package-less/whole-day (ADR-0081 §4), the same rule a null packageId used to encode directly.
-  const chairsByPackageId = new Map<string, BookingBandChair[]>();
-  const wholeDayChairs: BookingBandChair[] = [];
-  for (const chair of bandChairs) {
-    const packageId = chairPackageId(chair, bandLineups);
-    if (packageId) {
-      if (!chairsByPackageId.has(packageId)) chairsByPackageId.set(packageId, []);
-      chairsByPackageId.get(packageId)!.push(chair);
-    } else {
-      wholeDayChairs.push(chair);
-    }
-  }
+  const { chairsByPackageId, wholeDayChairs } = groupChairsBySegment(bandChairs, bandLineups);
   // A package header only appears where a set already leads its run — a package holding chairs
   // but no sets yet never gets one, so its roster renders in its own fallback block below instead.
   const rosterShownForPackageId = new Set<string>();
@@ -254,11 +266,14 @@ export default function ItineraryCard({
           </Fragment>
         ))}
 
-        {/* Chairs that play across the whole day, tied to no segment — still rendered, per ADR-0072
-            §6, even for a package-less booking whose chairs are all "Whole day". */}
+        {/* Parts tied to no segment — still rendered, per ADR-0072 §6. On a booking with no packages
+            that is the whole gig; on one with packages it is a band with nothing to play yet, and
+            the heading says which (#987 retired the "Whole day" sentinel). */}
         {wholeDayChairs.length > 0 && (
           <>
-            <div className="pb-1 pt-2 text-xs font-medium text-muted">{segmentLabel(wholeDayChairs[0], bandLineups, packages)}</div>
+            <div className="pb-1 pt-2 text-xs font-medium text-muted">
+              {packages.length ? 'Not playing a set yet' : 'The whole gig'}
+            </div>
             <PackageRoster chairs={wholeDayChairs} memberById={memberById} />
           </>
         )}
