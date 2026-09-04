@@ -28,6 +28,17 @@ type PackageTemplateWithSlots = {
   defaultLineupTemplate: { id: string; label: string; slots: Array<{ role: string; order: number }> } | null;
 };
 
+type LineupTemplateWithSlots = NonNullable<PackageTemplateWithSlots['defaultLineupTemplate']>;
+
+// #989: the musician's resolved lineup declarations for create — one entry per Lineup to write,
+// each already carrying its full template (bulk-fetched by the service before the transaction
+// opens, mirroring `orderedTemplates`). `packageTemplateIds` names by *template* id, since the
+// booking-owned Package rows don't exist yet when the musician made the choice.
+export type LineupSelection = {
+  lineupTemplate: LineupTemplateWithSlots;
+  packageTemplateIds: string[];
+};
+
 // The shape Copy Event clones from — the source booking loaded with the relations
 // cloneBookingCore re-creates (#507).
 export type BookingForClone = NonNullable<
@@ -366,7 +377,14 @@ export class BookingsRepository {
     enableMusicForm = false,
     tx?: Prisma.TransactionClient,
   ) {
-    const { packageTemplateIds: _, fee, date, checklistItems: __, newSeries: ___, enableMusicForm: ____, ...fields } = dto;
+    // `lineups` is stripped even though this path is only reached when it's empty/absent (#989:
+    // the service routes any non-empty `lineups` through createWithPackageTemplates) — an
+    // explicit `lineups: []` ("Decide later" with no packages) still reaches here and must not
+    // leak into `data` below.
+    const {
+      packageTemplateIds: _, fee, date, checklistItems: __, newSeries: ___, enableMusicForm: ____,
+      lineups: _____, ...fields
+    } = dto;
     const db = tx ?? this.prisma;
     const data = {
       userId,
@@ -424,9 +442,32 @@ export class BookingsRepository {
     }
   }
 
+  // #989: the musician-declared path — `lineupSelections` is authoritative and fully supersedes
+  // every template's own default, including templates left un-mentioned (that's what "Decide
+  // later" for one package while another gets a lineup means). One Lineup per entry, even if two
+  // entries name the same lineup template — grouping states "same band, both segments" on the
+  // wire directly, so the server trusts it rather than re-deriving the dedupe itself (ADR-0081 §4).
+  private async createLineupsFromSelections(
+    ctx: { db: Prisma.TransactionClient | PrismaService; userId: string; bookingId: string },
+    lineupSelections: LineupSelection[],
+    orderedTemplates: PackageTemplateWithSlots[],
+    bookingPackages: Array<{ id: string }>,
+  ) {
+    const { db, userId } = ctx;
+    const packageIdByTemplateId = new Map(orderedTemplates.map((t, i) => [t.id, bookingPackages[i].id]));
+    for (const selection of lineupSelections) {
+      const lineupId = await this.createLineupWithChairs(ctx, selection.lineupTemplate);
+      for (const templateId of selection.packageTemplateIds) {
+        const packageId = packageIdByTemplateId.get(templateId);
+        if (!packageId) continue; // not among this booking's chosen packages — ignore rather than throw
+        await db.lineupPackage.create({ data: { userId, lineupId, packageId } });
+      }
+    }
+  }
+
   private async createLineupWithChairs(
     ctx: { db: Prisma.TransactionClient | PrismaService; userId: string; bookingId: string },
-    lineupTemplate: NonNullable<PackageTemplateWithSlots['defaultLineupTemplate']>,
+    lineupTemplate: LineupTemplateWithSlots,
   ): Promise<string> {
     const { db, userId, bookingId } = ctx;
     const lineup = await db.lineup.create({
@@ -450,8 +491,14 @@ export class BookingsRepository {
     orderedTemplates: PackageTemplateWithSlots[],
     enableMusicForm: boolean,
     tx?: Prisma.TransactionClient,
+    // #989: undefined -> derive each template's own default (#988 behavior); [] -> "Decide
+    // later", apply nothing; entries -> authoritative, supersedes every template default.
+    lineupSelections?: LineupSelection[],
   ) {
-    const { packageTemplateIds: _, fee, date, checklistItems: __, newSeries: ___, enableMusicForm: ____, ...fields } = dto;
+    const {
+      packageTemplateIds: _, fee, date, checklistItems: __, newSeries: ___, enableMusicForm: ____,
+      lineups: _____, ...fields
+    } = dto;
     const db = tx ?? this.prisma;
 
     // Create the booking row first (no sets, no packages yet)
@@ -491,12 +538,15 @@ export class BookingsRepository {
       }
     }
 
-    // Create Lineups from each template's default lineup (#988): templates that declare the
-    // same default lineup collapse to one Lineup linked to every segment it plays (ADR-0081
-    // §4) — the direct expression of "same band, both segments", not a heuristic. Written
-    // inline against `tx` — never via applyPackageTemplate, which opens its own $transaction
-    // and would nest inside this atomic create (exactly what ADR-0047 forbids).
-    await this.createLineupsFromTemplates({ db, userId, bookingId: booking.id }, orderedTemplates, bookingPackages);
+    // Create Lineups (#988, superseded by #989 whenever the musician declared choices): written
+    // inline against `tx` — never via applyPackageTemplate, which opens its own $transaction and
+    // would nest inside this atomic create (exactly what ADR-0047 forbids).
+    const ctx = { db, userId, bookingId: booking.id };
+    if (lineupSelections) {
+      await this.createLineupsFromSelections(ctx, lineupSelections, orderedTemplates, bookingPackages);
+    } else {
+      await this.createLineupsFromTemplates(ctx, orderedTemplates, bookingPackages);
+    }
 
     // Create music form config when enabled, seeded from the chosen package templates
     if (enableMusicForm) {

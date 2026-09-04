@@ -207,10 +207,10 @@ function makeContacts(): MockContacts {
   return { assertOwned: jest.fn().mockResolvedValue(undefined) };
 }
 
-type MockLineups = { findOne: jest.Mock };
+type MockLineups = { findOne: jest.Mock; findByIds: jest.Mock };
 
 function makeLineups(): MockLineups {
-  return { findOne: jest.fn() };
+  return { findOne: jest.fn(), findByIds: jest.fn().mockResolvedValue([]) };
 }
 
 const booking = { id: 'b1', userId: 'u1', status: BookingStatus.CONFIRMED };
@@ -484,7 +484,8 @@ describe('BookingsService', () => {
       const result = await service.create('u1', dto);
       expect(repo.findPackageTemplates).toHaveBeenCalledWith('u1', ['f1']);
       // No enableMusicForm in the dto → music form off (config row not created).
-      expect(repo.createWithPackageTemplates).toHaveBeenCalledWith('u1', dto, [tmpl], false, TX);
+      // Undefined lineupSelections (dto.lineups omitted) — #988's per-template-default path.
+      expect(repo.createWithPackageTemplates).toHaveBeenCalledWith('u1', dto, [tmpl], false, TX, undefined);
       // ADR-0071: create returns the mapped shape (findOne's shape), not the raw repo row.
       expect(result).toEqual(withNoContractOrMusicForm(createdBooking));
     });
@@ -495,7 +496,7 @@ describe('BookingsService', () => {
       repo.createWithPackageTemplates.mockResolvedValue(createdBooking);
       const dto = { eventType: 'WEDDING' as const, date: '2026-06-01', customerId: 'c1', packageTemplateIds: ['f1'], enableMusicForm: true, checklistItems: [] };
       await service.create('u1', dto);
-      expect(repo.createWithPackageTemplates).toHaveBeenCalledWith('u1', dto, [tmpl], true, TX);
+      expect(repo.createWithPackageTemplates).toHaveBeenCalledWith('u1', dto, [tmpl], true, TX, undefined);
     });
 
     it('passes enableMusicForm=true to repo.create when opting in with no packages', async () => {
@@ -516,6 +517,98 @@ describe('BookingsService', () => {
       const orderedTemplates = repo.createWithPackageTemplates.mock.calls[0][2];
       expect(orderedTemplates[0].id).toBe('f1');
       expect(orderedTemplates[1].id).toBe('f2');
+    });
+
+    // #989: `dto.lineups` — resolved to hydrated LineupSelection[] before the transaction opens
+    // (ADR-0047: reads stay outside it), then threaded through as createWithPackageTemplates'
+    // 6th arg. The three-state contract from the DTO's own doc comment is the thing under test.
+    describe('lineup selections (#989)', () => {
+      const lineupTemplate = { id: 'lt1', label: 'My five-piece', slots: [{ id: 's1', role: 'Sax', order: 1 }] };
+
+      it('resolves undefined (omitted) straight through — falls back to per-template defaults', async () => {
+        const tmpl = { id: 'f1', label: 'Ceremony', icon: 'heart', keyMoments: [], defaultGenreSelection: [], slots: [] };
+        repo.findPackageTemplates.mockResolvedValue([tmpl]);
+        repo.createWithPackageTemplates.mockResolvedValue(createdBooking);
+        const dto = { eventType: 'WEDDING' as const, date: '2026-06-01', customerId: 'c1', packageTemplateIds: ['f1'], checklistItems: [] };
+        await service.create('u1', dto);
+        expect(lineups.findByIds).not.toHaveBeenCalled();
+        expect(repo.createWithPackageTemplates).toHaveBeenCalledWith('u1', dto, [tmpl], false, TX, undefined);
+      });
+
+      it('an empty lineups array with no packages routes through repo.create, not createWithPackageTemplates', async () => {
+        repo.create.mockResolvedValue(createdBooking);
+        const dto = { eventType: 'WEDDING' as const, date: '2026-06-01', customerId: 'c1', lineups: [], checklistItems: [] };
+        await service.create('u1', dto);
+        expect(repo.createWithPackageTemplates).not.toHaveBeenCalled();
+        expect(repo.create).toHaveBeenCalledWith('u1', dto, false, TX);
+      });
+
+      it('resolves declared lineups via lineups.findByIds and threads them through as the 6th arg', async () => {
+        const tmpl = { id: 'f1', label: 'Ceremony', icon: 'heart', keyMoments: [], defaultGenreSelection: [], slots: [] };
+        repo.findPackageTemplates.mockResolvedValue([tmpl]);
+        repo.createWithPackageTemplates.mockResolvedValue(createdBooking);
+        lineups.findByIds.mockResolvedValue([lineupTemplate]);
+        const dto = {
+          eventType: 'WEDDING' as const, date: '2026-06-01', customerId: 'c1',
+          packageTemplateIds: ['f1'], lineups: [{ lineupTemplateId: 'lt1', packageTemplateIds: ['f1'] }],
+          checklistItems: [],
+        };
+        await service.create('u1', dto);
+        expect(lineups.findByIds).toHaveBeenCalledWith('u1', ['lt1']);
+        expect(repo.createWithPackageTemplates).toHaveBeenCalledWith('u1', dto, [tmpl], false, TX, [
+          { lineupTemplate: { id: 'lt1', label: 'My five-piece', slots: [{ role: 'Sax', order: 1 }] }, packageTemplateIds: ['f1'] },
+        ]);
+      });
+
+      // The catch this issue exists to prevent recurring for: a package-less booking that
+      // declares a standalone lineup must not silently drop it by falling through to the
+      // plain repo.create() path, exactly as #988 fixed for packages.
+      it('routes a package-less booking with a declared lineup through createWithPackageTemplates, not repo.create', async () => {
+        repo.createWithPackageTemplates.mockResolvedValue(createdBooking);
+        lineups.findByIds.mockResolvedValue([lineupTemplate]);
+        const dto = {
+          eventType: 'WEDDING' as const, date: '2026-06-01', customerId: 'c1',
+          lineups: [{ lineupTemplateId: 'lt1', packageTemplateIds: [] }],
+          checklistItems: [],
+        };
+        await service.create('u1', dto);
+        expect(repo.create).not.toHaveBeenCalled();
+        expect(repo.createWithPackageTemplates).toHaveBeenCalledWith('u1', dto, [], false, TX, [
+          { lineupTemplate: { id: 'lt1', label: 'My five-piece', slots: [{ role: 'Sax', order: 1 }] }, packageTemplateIds: [] },
+        ]);
+      });
+
+      it('drops a lineupTemplateId that does not resolve (foreign or stale id), mirroring the package-template lenient filter', async () => {
+        // Everything the declared lineup would have written is filtered out, so — like an
+        // explicit "Decide later" with no packages — there is genuinely nothing to write and
+        // this correctly falls through to plain repo.create, not createWithPackageTemplates.
+        repo.create.mockResolvedValue(createdBooking);
+        lineups.findByIds.mockResolvedValue([]); // nothing resolves for this user
+        const dto = {
+          eventType: 'WEDDING' as const, date: '2026-06-01', customerId: 'c1',
+          lineups: [{ lineupTemplateId: 'not-mine', packageTemplateIds: [] }],
+          checklistItems: [],
+        };
+        await service.create('u1', dto);
+        expect(lineups.findByIds).toHaveBeenCalledWith('u1', ['not-mine']);
+        expect(repo.createWithPackageTemplates).not.toHaveBeenCalled();
+        expect(repo.create).toHaveBeenCalledWith('u1', dto, false, TX);
+      });
+
+      it('dedupes lineupTemplateIds before the bulk lookup', async () => {
+        repo.createWithPackageTemplates.mockResolvedValue(createdBooking);
+        lineups.findByIds.mockResolvedValue([lineupTemplate]);
+        const dto = {
+          eventType: 'WEDDING' as const, date: '2026-06-01', customerId: 'c1',
+          lineups: [
+            { lineupTemplateId: 'lt1', packageTemplateIds: ['f1'] },
+            { lineupTemplateId: 'lt1', packageTemplateIds: ['f2'] },
+          ],
+          checklistItems: [],
+        };
+        await service.create('u1', dto);
+        expect(lineups.findByIds).toHaveBeenCalledWith('u1', ['lt1']);
+      });
     });
 
     // ADR-0047 — atomic create (Path A regression guard). The unit-level proof is that

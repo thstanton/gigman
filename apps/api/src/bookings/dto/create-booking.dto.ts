@@ -71,6 +71,21 @@ export class ChecklistItemInput {
   concern?: 'overview' | 'people' | 'venue' | 'itinerary' | 'music' | null;
 }
 
+// #989: one entry per Lineup the musician declared at create time — grouping by lineup states
+// "same band, both segments" directly, rather than making the server de-duplicate by template id
+// (ADR-0081 §4's argument style). An empty `packageTemplateIds` is a Lineup linked to no segments:
+// the package-less booking, or an additional band on the day with nothing assigned yet.
+export class BookingLineupSelectionInput {
+  @ApiProperty({ example: 'uuid-of-lineup-template' })
+  @IsUUID()
+  lineupTemplateId!: string;
+
+  @ApiProperty({ type: [String], description: 'Package template IDs this Lineup plays (may be empty)' })
+  @IsArray()
+  @IsUUID('all', { each: true })
+  packageTemplateIds!: string[];
+}
+
 export class CreateBookingDto {
   @ApiProperty({ enum: EVENT_TYPES })
   @IsIn(EVENT_TYPES)
@@ -128,6 +143,17 @@ export class CreateBookingDto {
   @IsOptional()
   @IsBoolean()
   enableMusicForm?: boolean;
+
+  @ApiPropertyOptional({
+    type: [BookingLineupSelectionInput],
+    description:
+      'The musician-declared lineup choices (#989). Three states, and the third must not collapse into the first: omitted — apply each chosen package template\'s own defaultLineupTemplateId; [] — "Decide later", apply nothing (must not fall back to defaults); one-or-more entries — apply exactly those, superseding every template default including ones left un-mentioned.',
+  })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => BookingLineupSelectionInput)
+  lineups?: BookingLineupSelectionInput[];
 
   @ApiProperty({ type: [ChecklistItemInput], description: 'Checklist items to seed for this booking' })
   @IsArray()

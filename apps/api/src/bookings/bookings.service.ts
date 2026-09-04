@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { BookingStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { BookingsRepository, type BookingDetailRow } from './bookings.repository';
+import { BookingsRepository, type BookingDetailRow, type LineupSelection } from './bookings.repository';
 import { ContractRepository } from './contract.repository';
 import { MusicFormConfigRepository } from './music-form-config.repository';
 import { ChecklistRepository, ChecklistItemSeed } from '../checklist/checklist.repository';
@@ -319,6 +319,35 @@ export class BookingsService {
       .filter((t): t is NonNullable<typeof t> => t != null);
   }
 
+  // #989: resolves `dto.lineups` into hydrated selections before the transaction opens (ADR-0047
+  // — reads stay outside it), preserving the three-state contract the DTO's own doc comment
+  // states. `undefined` here means "fall back to each template's own default" (repo's #988
+  // behavior) — it must NOT collapse into `[]`, which instead means "apply nothing".
+  private async resolveOrderedLineupSelections(
+    userId: string,
+    dto: CreateBookingDto,
+  ): Promise<LineupSelection[] | undefined> {
+    if (dto.lineups === undefined) return undefined;
+    if (dto.lineups.length === 0) return [];
+    const ids = [...new Set(dto.lineups.map((l) => l.lineupTemplateId))];
+    const lineupTemplates = await this.lineups.findByIds(userId, ids);
+    const byId = new Map(lineupTemplates.map((t) => [t.id, t]));
+    return dto.lineups
+      .map((entry) => {
+        const lineupTemplate = byId.get(entry.lineupTemplateId);
+        if (!lineupTemplate) return null;
+        return {
+          lineupTemplate: {
+            id: lineupTemplate.id,
+            label: lineupTemplate.label,
+            slots: lineupTemplate.slots.map((s) => ({ role: s.role, order: s.order })),
+          },
+          packageTemplateIds: entry.packageTemplateIds,
+        };
+      })
+      .filter((s): s is LineupSelection => s != null);
+  }
+
   // The atomic unit (ADR-0047): booking row + checklist seed + series-invoice-line append
   // run inside one transaction, so a throw anywhere rolls back to zero — a retry-on-error
   // yields exactly one booking, closing the duplicate-booking path.
@@ -330,13 +359,18 @@ export class BookingsService {
       dtoWithSeries: CreateBookingDto;
       resolvedSeriesId: string | undefined;
       orderedTemplates: Awaited<ReturnType<BookingsRepository['findPackageTemplates']>>;
+      lineupSelections: LineupSelection[] | undefined;
     },
   ) {
-    const { dto, dtoWithSeries, resolvedSeriesId, orderedTemplates } = args;
+    const { dto, dtoWithSeries, resolvedSeriesId, orderedTemplates, lineupSelections } = args;
     const enableMusicForm = dto.enableMusicForm ?? false;
 
-    const created = dto.packageTemplateIds?.length
-      ? await this.repo.createWithPackageTemplates(userId, dtoWithSeries, orderedTemplates, enableMusicForm, tx)
+    // A package-less booking can still declare a standalone lineup (#989: "several lineups
+    // declared with no segments" for the musician who skips packages entirely) — so this must
+    // route through createWithPackageTemplates whenever EITHER carries content, not just
+    // packages, else a package-less lineup silently drops exactly as #988 fixed for packages.
+    const created = dto.packageTemplateIds?.length || lineupSelections?.length
+      ? await this.repo.createWithPackageTemplates(userId, dtoWithSeries, orderedTemplates, enableMusicForm, tx, lineupSelections)
       : await this.repo.create(userId, dtoWithSeries, enableMusicForm, tx);
 
     if (dto.checklistItems.length > 0) {
@@ -367,6 +401,7 @@ export class BookingsService {
     }
     const dtoWithSeries = { ...dto, seriesId: resolvedSeriesId };
     const orderedTemplates = await this.resolveOrderedPackageTemplates(userId, dto);
+    const lineupSelections = await this.resolveOrderedLineupSelections(userId, dto);
 
     // Warm the Neon compute (scale-to-zero) *before* opening the transaction so a cold-start
     // wake is absorbed here, not inside the interactive-transaction timeout. The no-template/
@@ -381,6 +416,7 @@ export class BookingsService {
           dtoWithSeries,
           resolvedSeriesId,
           orderedTemplates,
+          lineupSelections,
         }),
       { maxWait: 5000, timeout: 15000 },
     );
