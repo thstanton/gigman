@@ -39,12 +39,12 @@ export function BookingVenueMapWidget({ bookingId, contactHref }: BookingVenueMa
 
   const venueId = booking?.venue?.id;
   const hasVenueCoords = !!booking?.venue?.latitude && !!booking?.venue?.longitude;
-  const hasHomeCoords = !!userProfile?.latitude && !!userProfile?.longitude;
+  const hasTravelBaseCoords = !!userProfile?.travelBaseLatitude && !!userProfile?.travelBaseLongitude;
 
   const { data: travelTimeData, isFetching: isFetchingTravelTime } = useQuery({
     queryKey: ['contact-travel-time', venueId],
     queryFn: () => apiGet<TravelTimeResponse>(`/contacts/${venueId}/travel-time`),
-    enabled: !!venueId && hasVenueCoords && hasHomeCoords,
+    enabled: !!venueId && hasVenueCoords && hasTravelBaseCoords,
   });
 
   if (!booking?.venue) return null;
@@ -70,7 +70,7 @@ export function BookingVenueMapWidget({ bookingId, contactHref }: BookingVenueMa
       contactHref={contactHref}
       travelTime={travelTime}
       isLoadingTravelTime={isFetchingTravelTime}
-      homeAddressMissing={hasVenueCoords && !hasHomeCoords}
+      travelBaseMissing={hasVenueCoords && !hasTravelBaseCoords}
       onRefreshTravelTime={() => queryClient.invalidateQueries({ queryKey: ['contact-travel-time', venueId] })}
     />
   );

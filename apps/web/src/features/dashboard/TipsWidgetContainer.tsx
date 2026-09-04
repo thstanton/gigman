@@ -30,7 +30,7 @@ function buildSnapshot(
   songs: Song[] | undefined,
 ): TipSnapshot {
   return {
-    hasHomeAddress: !!(me?.latitude && me?.longitude),
+    hasTravelBase: !!(me?.travelBaseLatitude && me?.travelBaseLongitude),
     hasLogo: !!publicProfile?.logoUrl,
     // No template of their own — an empty library (no auto-seed, #663) or only system defaults.
     noCustomPackage: !!packages && packages.every((p) => p.isSystemDefault),

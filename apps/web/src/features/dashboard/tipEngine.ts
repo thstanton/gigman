@@ -7,7 +7,7 @@
 
 /** Plain-boolean snapshot of the musician's setup state. Extend by adding a flag. */
 export interface TipSnapshot {
-  hasHomeAddress: boolean;
+  hasTravelBase: boolean;
   hasLogo: boolean;
   // True when the musician has no package template of their own — an empty library (packages are no
   // longer auto-seeded, #663) or a legacy library still holding only system defaults.
@@ -41,9 +41,9 @@ export interface Tip extends TipDisplay {
  */
 export const TIP_POOL: Tip[] = [
   {
-    id: 'home-address-missing',
-    condition: (s) => !s.hasHomeAddress,
-    text: 'Add your home address so GigLoop can show travel times to venues',
+    id: 'travel-base-missing',
+    condition: (s) => !s.hasTravelBase,
+    text: 'Add your Travel Base so GigLoop can show travel times to venues',
     href: '/admin/settings',
   },
   {

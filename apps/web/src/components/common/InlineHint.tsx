@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils';
 interface InlineHintProps {
   /** Optional muted lead text shown before the action. */
   children?: React.ReactNode;
-  /** Text of the action (e.g. "Add your home address to see travel time"). */
+  /** Text of the action (e.g. "Add your Travel Base to see travel time"). */
   actionLabel: string;
   /**
    * Internal route the action links to (renders a Link). Provide exactly one of

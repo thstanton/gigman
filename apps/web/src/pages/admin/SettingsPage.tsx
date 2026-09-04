@@ -56,6 +56,20 @@ const businessSchema = z.object({
 
 type BusinessForm = z.infer<typeof businessSchema>;
 
+const travelBaseSchema = z.object({
+  travelBaseAddressLine1: z.string(),
+  travelBaseAddressLine2: z.string(),
+  travelBaseCity: z.string(),
+  travelBaseCounty: z.string(),
+  travelBasePostcode: z.string(),
+  travelBaseCountry: z.string(),
+  travelBaseLatitude: z.number().nullable(),
+  travelBaseLongitude: z.number().nullable(),
+  travelBasePlaceId: z.string().nullable(),
+});
+
+type TravelBaseForm = z.infer<typeof travelBaseSchema>;
+
 const notificationsSchema = z.object({
   digestEmailEnabled: z.boolean(),
   reminderLeadDays: z.number().int().min(1).max(90),
@@ -407,7 +421,7 @@ function BusinessDetailsSection({ profile }: { profile: UserProfile }) {
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
       <PageSection
         title="Business details"
-        description="Used on invoices and other client-facing documents."
+        description="Shown on invoices."
       />
 
       <FormField label="Address">
@@ -511,6 +525,102 @@ function BusinessDetailsSection({ profile }: { profile: UserProfile }) {
           </div>
         </FormField>
       </div>
+
+      <SaveBar isPending={mutation.isPending} saved={saved} isError={mutation.isError} />
+    </form>
+  );
+}
+
+// ─── Travel Base section ───────────────────────────────────────────────────────
+
+function TravelBaseSection({ profile }: { profile: UserProfile }) {
+  const queryClient = useQueryClient();
+  const [saved, setSaved] = useState(false);
+
+  const defaults: TravelBaseForm = {
+    travelBaseAddressLine1: profile.travelBaseAddressLine1 ?? '',
+    travelBaseAddressLine2: profile.travelBaseAddressLine2 ?? '',
+    travelBaseCity: profile.travelBaseCity ?? '',
+    travelBaseCounty: profile.travelBaseCounty ?? '',
+    travelBasePostcode: profile.travelBasePostcode ?? '',
+    travelBaseCountry: profile.travelBaseCountry ?? 'GB',
+    travelBaseLatitude: profile.travelBaseLatitude ?? null,
+    travelBaseLongitude: profile.travelBaseLongitude ?? null,
+    travelBasePlaceId: profile.travelBasePlaceId ?? null,
+  };
+
+  const { control, handleSubmit, reset, watch, setValue } = useForm<TravelBaseForm>({
+    resolver: zodResolver(travelBaseSchema),
+    defaultValues: defaults,
+  });
+
+  useEffect(() => { reset(defaults); }, [profile]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const mutation = useMutation({
+    mutationFn: (data: UpdateUserProfileInput) => apiPatch<UserProfile>('/me', data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['me'] });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+    },
+  });
+
+  function onSubmit(values: TravelBaseForm) {
+    mutation.mutate({
+      travelBaseAddressLine1: values.travelBaseAddressLine1 || null,
+      travelBaseAddressLine2: values.travelBaseAddressLine2 || null,
+      travelBaseCity: values.travelBaseCity || null,
+      travelBaseCounty: values.travelBaseCounty || null,
+      travelBasePostcode: values.travelBasePostcode || null,
+      travelBaseCountry: values.travelBaseCountry || null,
+      travelBaseLatitude: values.travelBaseLatitude,
+      travelBaseLongitude: values.travelBaseLongitude,
+      travelBasePlaceId: values.travelBasePlaceId,
+    });
+  }
+
+  return (
+    <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
+      <PageSection
+        title="Travel Base"
+        description="Where you set off from for gigs — used to estimate travel time to venues. Private: never shown to clients."
+      />
+
+      <FormField label="Address">
+        <Controller
+          name="travelBaseAddressLine1"
+          control={control}
+          render={() => {
+            const addressValue = {
+              addressLine1: watch('travelBaseAddressLine1'),
+              addressLine2: watch('travelBaseAddressLine2'),
+              city: watch('travelBaseCity'),
+              county: watch('travelBaseCounty'),
+              postcode: watch('travelBasePostcode'),
+              country: watch('travelBaseCountry'),
+              latitude: watch('travelBaseLatitude'),
+              longitude: watch('travelBaseLongitude'),
+              placeId: watch('travelBasePlaceId'),
+            };
+            return (
+              <AddressAutocomplete
+                value={addressValue}
+                onChange={(v) => {
+                  setValue('travelBaseAddressLine1', v.addressLine1, { shouldDirty: true });
+                  setValue('travelBaseAddressLine2', v.addressLine2, { shouldDirty: true });
+                  setValue('travelBaseCity', v.city, { shouldDirty: true });
+                  setValue('travelBaseCounty', v.county, { shouldDirty: true });
+                  setValue('travelBasePostcode', v.postcode, { shouldDirty: true });
+                  setValue('travelBaseCountry', v.country, { shouldDirty: true });
+                  setValue('travelBaseLatitude', v.latitude, { shouldDirty: true });
+                  setValue('travelBaseLongitude', v.longitude, { shouldDirty: true });
+                  setValue('travelBasePlaceId', v.placeId, { shouldDirty: true });
+                }}
+              />
+            );
+          }}
+        />
+      </FormField>
 
       <SaveBar isPending={mutation.isPending} saved={saved} isError={mutation.isError} />
     </form>
@@ -864,6 +974,8 @@ export default function SettingsPage() {
         <PortalSection />
         <div className="border-t border-border" />
         <BusinessDetailsSection profile={userProfile} />
+        <div className="border-t border-border" />
+        <TravelBaseSection profile={userProfile} />
         <div className="border-t border-border" />
         <InvoiceSettingsSection profile={userProfile} />
         <div className="border-t border-border" />

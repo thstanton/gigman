@@ -6,8 +6,8 @@ import { TipsWidget } from './TipsWidget';
 import type { TipDisplay } from './tipEngine';
 
 const sampleTip: TipDisplay = {
-  id: 'home-address-missing',
-  text: 'Add your home address so GigLoop can show travel times to venues',
+  id: 'travel-base-missing',
+  text: 'Add your Travel Base so GigLoop can show travel times to venues',
   href: '/admin/settings',
 };
 
@@ -42,9 +42,9 @@ export const DismissHidesIt: Story = {
   args: { tip: sampleTip, onDismiss: () => {} },
   render: () => <StatefulTipsWidget />,
   play: async ({ canvas }) => {
-    await expect(canvas.getByRole('link', { name: /add your home address/i })).toBeVisible();
+    await expect(canvas.getByRole('link', { name: /add your travel base/i })).toBeVisible();
 
     await userEvent.click(canvas.getByRole('button', { name: /dismiss tip/i }));
-    await expect(canvas.queryByRole('link', { name: /add your home address/i })).toBeNull();
+    await expect(canvas.queryByRole('link', { name: /add your travel base/i })).toBeNull();
   },
 };

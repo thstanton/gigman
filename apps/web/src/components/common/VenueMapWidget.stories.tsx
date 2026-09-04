@@ -90,17 +90,17 @@ export const NoTravelTime: Story = {
   },
 };
 
-/** Venue is geocoded but the musician has no home address — prompt to add it. */
-export const NoHomeAddress: Story = {
+/** Venue is geocoded but the musician has no Travel Base — prompt to add it. */
+export const NoTravelBase: Story = {
   args: {
     showHeader: true,
     travelTime: null,
     isLoadingTravelTime: false,
-    homeAddressMissing: true,
+    travelBaseMissing: true,
     contactHref: '/admin/contacts/v1',
   },
   play: async ({ canvas }) => {
-    const link = canvas.getByRole('link', { name: /add your home address/i });
+    const link = canvas.getByRole('link', { name: /add your travel base/i });
     await expect(link).toBeVisible();
     await expect(link).toHaveAttribute('href', '/admin/settings');
     // The generic failure text and the (useless) refresh button are suppressed.

@@ -10,39 +10,39 @@ describe('resolveTravelTimeStatus', () => {
 
   it('is loading whenever a calculation is in flight (precedence over everything)', () => {
     expect(
-      resolveTravelTimeStatus({ isLoadingTravelTime: true, travelTime, homeAddressMissing: true }),
+      resolveTravelTimeStatus({ isLoadingTravelTime: true, travelTime, travelBaseMissing: true }),
     ).toEqual({ kind: 'loading' });
   });
 
   it('is known with a formatted label when a travel time is present', () => {
     expect(
-      resolveTravelTimeStatus({ isLoadingTravelTime: false, travelTime, homeAddressMissing: false }),
+      resolveTravelTimeStatus({ isLoadingTravelTime: false, travelTime, travelBaseMissing: false }),
     ).toEqual({ kind: 'known', label: '~25 min · 12.3 km driving' });
   });
 
-  it('prompts to add a home address when one is missing and no time is known', () => {
+  it('prompts to add a Travel Base when one is missing and no time is known', () => {
     expect(
-      resolveTravelTimeStatus({ isLoadingTravelTime: false, travelTime: null, homeAddressMissing: true }),
-    ).toEqual({ kind: 'add-home-address' });
+      resolveTravelTimeStatus({ isLoadingTravelTime: false, travelTime: null, travelBaseMissing: true }),
+    ).toEqual({ kind: 'add-travel-base' });
   });
 
-  it('is unavailable when no time is known and the home address is present', () => {
+  it('is unavailable when no time is known and the Travel Base is present', () => {
     expect(
-      resolveTravelTimeStatus({ isLoadingTravelTime: false, travelTime: null, homeAddressMissing: false }),
+      resolveTravelTimeStatus({ isLoadingTravelTime: false, travelTime: null, travelBaseMissing: false }),
     ).toEqual({ kind: 'unavailable' });
     // undefined travelTime behaves the same as null
     expect(
-      resolveTravelTimeStatus({ isLoadingTravelTime: false, travelTime: undefined, homeAddressMissing: false }),
+      resolveTravelTimeStatus({ isLoadingTravelTime: false, travelTime: undefined, travelBaseMissing: false }),
     ).toEqual({ kind: 'unavailable' });
   });
 });
 
 describe('travelTimeRefreshVisible', () => {
-  it('shows the refresh button only for known/unavailable, hides it while loading or prompting for an address', () => {
+  it('shows the refresh button only for known/unavailable, hides it while loading or prompting for a Travel Base', () => {
     expect(travelTimeRefreshVisible({ kind: 'known', label: 'x' })).toBe(true);
     expect(travelTimeRefreshVisible({ kind: 'unavailable' })).toBe(true);
     expect(travelTimeRefreshVisible({ kind: 'loading' })).toBe(false);
-    expect(travelTimeRefreshVisible({ kind: 'add-home-address' })).toBe(false);
+    expect(travelTimeRefreshVisible({ kind: 'add-travel-base' })).toBe(false);
   });
 });
 
