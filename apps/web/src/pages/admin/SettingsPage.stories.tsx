@@ -18,6 +18,8 @@ type Story = StoryObj<typeof meta>;
 export const Default: Story = {
   play: async ({ canvas }) => {
     await expect(await canvas.findByText('Business details')).toBeVisible();
+    await expect(await canvas.findByText('Travel Base')).toBeVisible();
+    await expect(canvas.getByText(/private: never shown to clients/i)).toBeVisible();
   },
 };
 

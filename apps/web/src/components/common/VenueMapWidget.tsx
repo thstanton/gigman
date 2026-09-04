@@ -32,11 +32,11 @@ export interface VenueMapWidgetProps {
   isLoadingTravelTime?: boolean;
   onRefreshTravelTime?: () => void;
   /**
-   * The venue is geocoded but the musician has no home address, so travel time
-   * can't be computed. When true, the travel-time slot prompts them to add it
-   * instead of showing the generic "unavailable" text.
+   * The venue is geocoded but the musician has no Travel Base (ADR-0082), so
+   * travel time can't be computed. When true, the travel-time slot prompts them
+   * to add it instead of showing the generic "unavailable" text.
    */
-  homeAddressMissing?: boolean;
+  travelBaseMissing?: boolean;
   contactHref?: string;
 }
 
@@ -76,24 +76,24 @@ function loadMaps(): Promise<void> {
 // The four mutually-exclusive states the travel-time slot can be in. 'known' carries the
 // pre-formatted "~N min · D km driving" label so the render stays a dumb lookup, and the
 // refresh button derives its visibility from the kind (it's hidden for 'loading' and
-// 'add-home-address' — refreshing can't help while loading or with no base location).
+// 'add-travel-base' — refreshing can't help while loading or with no base location).
 export type TravelTimeStatus =
   | { kind: 'loading' }
   | { kind: 'known'; label: string }
-  | { kind: 'add-home-address' }
+  | { kind: 'add-travel-base' }
   | { kind: 'unavailable' };
 
 export function resolveTravelTimeStatus(input: {
   isLoadingTravelTime: boolean;
   travelTime: { minutes: number; distanceMetres: number } | null | undefined;
-  homeAddressMissing: boolean;
+  travelBaseMissing: boolean;
 }): TravelTimeStatus {
   if (input.isLoadingTravelTime) return { kind: 'loading' };
   if (input.travelTime) {
     const distanceKm = (input.travelTime.distanceMetres / 1000).toFixed(1);
     return { kind: 'known', label: `~${input.travelTime.minutes} min · ${distanceKm} km driving` };
   }
-  if (input.homeAddressMissing) return { kind: 'add-home-address' };
+  if (input.travelBaseMissing) return { kind: 'add-travel-base' };
   return { kind: 'unavailable' };
 }
 
@@ -107,8 +107,8 @@ function TravelTimeStatusText({ status }: { status: TravelTimeStatus }): ReactNo
       return <RefreshCw size={14} className="animate-spin text-muted" />;
     case 'known':
       return <span className="text-sm text-foreground">{status.label}</span>;
-    case 'add-home-address':
-      return <InlineHint actionLabel="Add your home address to see travel time" href="/admin/settings" />;
+    case 'add-travel-base':
+      return <InlineHint actionLabel="Add your Travel Base to see travel time" href="/admin/settings" />;
     case 'unavailable':
       return <span className="text-sm text-muted">Travel time unavailable</span>;
   }
@@ -153,7 +153,7 @@ export function VenueMapWidget({
   travelTime,
   isLoadingTravelTime = false,
   onRefreshTravelTime,
-  homeAddressMissing = false,
+  travelBaseMissing = false,
   contactHref,
 }: VenueMapWidgetProps) {
   const mapDivRef = useRef<HTMLDivElement>(null);
@@ -201,7 +201,7 @@ export function VenueMapWidget({
     };
   }, [hasCoords, venue.latitude, venue.longitude]);
 
-  const travelStatus = resolveTravelTimeStatus({ isLoadingTravelTime, travelTime, homeAddressMissing });
+  const travelStatus = resolveTravelTimeStatus({ isLoadingTravelTime, travelTime, travelBaseMissing });
   const mapStatus = resolveMapStatus({ hasCoords, mapFailed });
 
   return (

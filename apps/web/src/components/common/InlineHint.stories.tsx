@@ -11,7 +11,7 @@ const meta = {
   tags: ['autodocs'],
   decorators: [(Story) => React.createElement(MemoryRouter, {}, React.createElement(Story))],
   args: {
-    actionLabel: 'Add your home address to see travel time',
+    actionLabel: 'Add your Travel Base to see travel time',
     href: '/admin/settings',
   },
 } satisfies Meta<typeof InlineHint>;
@@ -22,7 +22,7 @@ type Story = StoryObj<typeof meta>;
 /** Primary use case: an action link routing to where the gap is fixed, led by the default sparkle marker. */
 export const Default: Story = {
   play: async ({ canvas }) => {
-    const link = canvas.getByRole('link', { name: /add your home address/i });
+    const link = canvas.getByRole('link', { name: /add your travel base/i });
     await expect(link).toBeVisible();
     await expect(link).toHaveAttribute('href', '/admin/settings');
   },

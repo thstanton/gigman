@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { selectEligibleTips, pickTip, TIP_POOL, type Tip, type TipSnapshot } from './tipEngine';
 
 const allSetUp: TipSnapshot = {
-  hasHomeAddress: true,
+  hasTravelBase: true,
   hasLogo: true,
   noCustomPackage: false,
   usesDefaultPortalBranding: false,
@@ -10,7 +10,7 @@ const allSetUp: TipSnapshot = {
   hasSongs: true,
 };
 const nothingSetUp: TipSnapshot = {
-  hasHomeAddress: false,
+  hasTravelBase: false,
   hasLogo: false,
   noCustomPackage: true,
   usesDefaultPortalBranding: true,
@@ -21,18 +21,18 @@ const nothingSetUp: TipSnapshot = {
 describe('selectEligibleTips', () => {
   it('includes a tip whose precondition is met and which is not dismissed', () => {
     const eligible = selectEligibleTips(nothingSetUp, []);
-    expect(eligible.map((t) => t.id)).toContain('home-address-missing');
+    expect(eligible.map((t) => t.id)).toContain('travel-base-missing');
   });
 
   it('excludes a dismissed tip', () => {
-    const eligible = selectEligibleTips(nothingSetUp, ['home-address-missing']);
-    expect(eligible.map((t) => t.id)).not.toContain('home-address-missing');
+    const eligible = selectEligibleTips(nothingSetUp, ['travel-base-missing']);
+    expect(eligible.map((t) => t.id)).not.toContain('travel-base-missing');
   });
 
   it('excludes a tip whose precondition is already satisfied', () => {
-    // hasHomeAddress true → the home-address tip should not be eligible.
+    // hasTravelBase true → the Travel Base tip should not be eligible.
     const eligible = selectEligibleTips(allSetUp, []);
-    expect(eligible.map((t) => t.id)).not.toContain('home-address-missing');
+    expect(eligible.map((t) => t.id)).not.toContain('travel-base-missing');
   });
 
   it('returns nothing when everything is set up', () => {
@@ -75,7 +75,7 @@ describe('song requests turned off', () => {
   });
 
   it('leaves the unrelated tips alone', () => {
-    expect(ids({ ...nothingSetUp, songRequestsEnabled: false })).toContain('home-address-missing');
+    expect(ids({ ...nothingSetUp, songRequestsEnabled: false })).toContain('travel-base-missing');
   });
 });
 
