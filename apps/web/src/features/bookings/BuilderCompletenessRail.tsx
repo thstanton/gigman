@@ -8,13 +8,16 @@ import { SPINE } from '@/features/bookings/builderSpine';
 export function BuilderCompletenessRail({
   completeness,
   onScrollTo,
+  spine = SPINE,
 }: {
   completeness: Record<SpineId, CompletenessStatus>;
   onScrollTo: (id: SpineId) => void;
+  /** #991: pass `visibleSpine(bandMembersEnabled)` so a flagged-off Band never appears as a dead row. */
+  spine?: typeof SPINE;
 }): React.JSX.Element {
   return (
     <nav aria-label="Builder sections" className="space-y-1">
-      {SPINE.map(({ id, label, Icon }) => {
+      {spine.map(({ id, label, Icon }) => {
         const status = completeness[id];
         return (
           <button

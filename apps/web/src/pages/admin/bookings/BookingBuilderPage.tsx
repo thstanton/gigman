@@ -6,8 +6,10 @@ import { useAuth } from '@clerk/react';
 import { Button } from '@/components/ui/button';
 import { useBooking } from '@/lib/hooks/useBooking';
 import { useBookingFields } from '@/lib/hooks/useBookingFields';
+import { isEnabled } from '@/lib/featureFlags';
 import { MobileBuilderStepper } from '@/features/bookings/MobileBuilderStepper';
 import { buildCompletenessMap, deriveBuilderNav } from '@/features/bookings/builderHelpers';
+import { SPINE } from '@/features/bookings/builderSpine';
 import { useBuilderScroll } from '@/features/bookings/useBuilderScroll';
 import { useBookingBuilderQueries } from '@/features/bookings/useBookingBuilderQueries';
 import { useBookingBuilderMutations } from '@/features/bookings/useBookingBuilderMutations';
@@ -36,6 +38,7 @@ export default function BookingBuilderPage() {
   const { isLoaded } = useAuth();
   const { data: booking, isLoading, isError } = useBooking(id!);
   const fields = useBookingFields(id!);
+  const bandMembersEnabled = isEnabled('VITE_FEATURE_BAND_MEMBERS');
 
   const queries = useBookingBuilderQueries({
     id: id!,
@@ -78,7 +81,10 @@ export default function BookingBuilderPage() {
   // ── Completeness (derived from current booking data for rail + backstop) ────
 
   const completeness = buildCompletenessMap(booking);
-  const { undone, stepperSections } = deriveBuilderNav(completeness);
+  // #991: Band is the spine's one flag-gated concern — excluded here so it never surfaces as a
+  // nav entry (rail row / stepper node) with nothing to scroll to when the flag is off.
+  const spine = bandMembersEnabled ? SPINE : SPINE.filter((s) => s.id !== 'band');
+  const { undone, stepperSections } = deriveBuilderNav(completeness, spine);
 
   function handleDone() {
     if (undone.length > 0) setShowBackstop(true);
@@ -122,13 +128,14 @@ export default function BookingBuilderPage() {
           queries={queries}
           mutations={mutations}
           registerSectionRef={registerSectionRef}
+          bandMembersEnabled={bandMembersEnabled}
           onDone={handleDone}
         />
 
         {/* ── Completeness rail (desktop only) ─────────────────────────────── */}
         <aside className="hidden md:block sticky top-20">
           <p className="mb-3 text-xs font-medium uppercase tracking-wide text-muted">Sections</p>
-          <BuilderCompletenessRail completeness={completeness} onScrollTo={scrollTo} />
+          <BuilderCompletenessRail completeness={completeness} onScrollTo={scrollTo} spine={spine} />
           <div className="mt-6">
             <Button className="w-full" onClick={handleDone}>Done</Button>
           </div>
