@@ -4,9 +4,12 @@ import { UpdateUserProfileDto } from './dto/update-user-profile.dto';
 import { encrypt, decrypt } from '../common/crypto';
 import type { ChecklistDefaultItem, DueDateRule } from '../checklist/checklist-defaults';
 
-const USER_PROFILE_ADDRESS_FIELDS: ReadonlyArray<keyof UpdateUserProfileDto> = [
-  'addressLine1', 'addressLine2', 'city', 'county', 'postcode', 'country',
-  'latitude', 'longitude', 'placeId',
+// Travel time is measured from the Travel Base only (ADR-0082) — editing the business address
+// must NOT clear cached journeys, only editing the Travel Base does.
+const TRAVEL_BASE_FIELDS: ReadonlyArray<keyof UpdateUserProfileDto> = [
+  'travelBaseAddressLine1', 'travelBaseAddressLine2', 'travelBaseCity', 'travelBaseCounty',
+  'travelBasePostcode', 'travelBaseCountry', 'travelBaseLatitude', 'travelBaseLongitude',
+  'travelBasePlaceId',
 ];
 
 const TRAVEL_TIME_CLEAR = {
@@ -48,7 +51,7 @@ export class UserProfileRepository {
       create: { userId, ...payload },
     });
 
-    if (USER_PROFILE_ADDRESS_FIELDS.some((f) => f in data)) {
+    if (TRAVEL_BASE_FIELDS.some((f) => f in data)) {
       await this.prisma.contact.updateMany({
         where: { userId },
         data: TRAVEL_TIME_CLEAR,

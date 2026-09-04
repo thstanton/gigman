@@ -7,7 +7,6 @@ import { DistanceMatrixClient } from './distance-matrix.client';
 type MockContactsRepo = {
   findOne: jest.Mock;
   updateTravelTime: jest.Mock;
-  clearTravelTimeForUser: jest.Mock;
 };
 
 type MockUserProfileRepo = {
@@ -22,7 +21,6 @@ function makeContactsRepo(): MockContactsRepo {
   return {
     findOne: jest.fn(),
     updateTravelTime: jest.fn(),
-    clearTravelTimeForUser: jest.fn(),
   };
 }
 
@@ -46,7 +44,7 @@ const venueContact = {
   travelMode: null,
 };
 
-const profile = { userId: 'u1', latitude: 52.0, longitude: -1.5 };
+const profile = { userId: 'u1', travelBaseLatitude: 52.0, travelBaseLongitude: -1.5 };
 
 describe('TravelTimeService', () => {
   let service: TravelTimeService;
@@ -102,18 +100,35 @@ describe('TravelTimeService', () => {
       );
     });
 
-    it('throws 422 with home address message when UserProfile has no coordinates', async () => {
+    it('throws 422 with Travel Base message when UserProfile has no Travel Base coordinates', async () => {
       contactsRepo.findOne.mockResolvedValue(venueContact);
       userProfileRepo.upsertByUserId.mockResolvedValue({
         ...profile,
-        latitude: null,
-        longitude: null,
+        travelBaseLatitude: null,
+        travelBaseLongitude: null,
       });
       await expect(service.getTravelTime('u1', 'c1')).rejects.toThrow(
         new UnprocessableEntityException(
-          'Home address not set — add it in Settings to see travel time',
+          'Travel Base not set — add it in Settings to see travel time',
         ),
       );
+    });
+
+    it('does not fall back to the business address when the Travel Base is unset', async () => {
+      contactsRepo.findOne.mockResolvedValue(venueContact);
+      userProfileRepo.upsertByUserId.mockResolvedValue({
+        userId: 'u1',
+        latitude: 52.0,
+        longitude: -1.5,
+        travelBaseLatitude: null,
+        travelBaseLongitude: null,
+      });
+      await expect(service.getTravelTime('u1', 'c1')).rejects.toThrow(
+        new UnprocessableEntityException(
+          'Travel Base not set — add it in Settings to see travel time',
+        ),
+      );
+      expect(distanceMatrix.getDistance).not.toHaveBeenCalled();
     });
 
     it('calls Distance Matrix, stores result, and returns travel time when both addresses are present', async () => {
@@ -125,7 +140,7 @@ describe('TravelTimeService', () => {
       const result = await service.getTravelTime('u1', 'c1');
 
       expect(distanceMatrix.getDistance).toHaveBeenCalledWith(
-        { lat: profile.latitude, lng: profile.longitude },
+        { lat: profile.travelBaseLatitude, lng: profile.travelBaseLongitude },
         { lat: venueContact.latitude, lng: venueContact.longitude },
       );
       expect(contactsRepo.updateTravelTime).toHaveBeenCalledWith('c1', {
@@ -139,14 +154,6 @@ describe('TravelTimeService', () => {
         distanceMetres: 130000,
         calculatedAt: expect.any(String),
       });
-    });
-  });
-
-  describe('clearAllForUser', () => {
-    it('delegates to contacts repository', async () => {
-      contactsRepo.clearTravelTimeForUser.mockResolvedValue(undefined);
-      await service.clearAllForUser('u1');
-      expect(contactsRepo.clearTravelTimeForUser).toHaveBeenCalledWith('u1');
     });
   });
 });

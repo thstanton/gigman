@@ -82,18 +82,6 @@ export class ContactsRepository {
     return this.prisma.contact.update({ where: { id }, data });
   }
 
-  clearTravelTimeForUser(userId: string) {
-    return this.prisma.contact.updateMany({
-      where: { userId },
-      data: {
-        travelTimeMinutes: null,
-        travelDistanceMetres: null,
-        travelTimeCalculatedAt: null,
-        travelMode: null,
-      },
-    });
-  }
-
   // Roster rows join the three existing FKs that block contact deletion (ADR-0072 §1): a contact
   // who is only on a booking's band roster still cannot be deleted. Kept as two counts (not
   // summed) so the service can build a 409 message that names which kind of association blocks

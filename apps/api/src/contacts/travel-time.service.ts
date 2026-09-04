@@ -32,14 +32,14 @@ export class TravelTimeService {
     }
 
     const profile = await this.userProfileRepo.upsertByUserId(userId);
-    if (!profile.latitude || !profile.longitude) {
+    if (!profile.travelBaseLatitude || !profile.travelBaseLongitude) {
       throw new UnprocessableEntityException(
-        'Home address not set — add it in Settings to see travel time',
+        'Travel Base not set — add it in Settings to see travel time',
       );
     }
 
     const { minutes, distanceMetres } = await this.distanceMatrix.getDistance(
-      { lat: profile.latitude as number, lng: profile.longitude as number },
+      { lat: profile.travelBaseLatitude as number, lng: profile.travelBaseLongitude as number },
       { lat: contact.latitude, lng: contact.longitude },
     );
 
@@ -52,9 +52,5 @@ export class TravelTimeService {
     });
 
     return { minutes, distanceMetres, calculatedAt: calculatedAt.toISOString() };
-  }
-
-  async clearAllForUser(userId: string): Promise<void> {
-    await this.contactsRepo.clearTravelTimeForUser(userId);
   }
 }
