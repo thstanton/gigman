@@ -54,10 +54,13 @@ export type BookingPortalVisibility = {
   musicForm: ReturnType<typeof resolveMusicFormVisibility>;
 };
 
-// A chair with its derived `callTime` folded in (ADR-0072 §2 / #884, re-pointed by ADR-0081 §3) —
-// never selected from the DB, computed in `mapBooking` from the chair's Lineup's segments against
-// the booking's `sets`.
-export type BandChair = BookingDetailRow['bandChairs'][number] & { callTime: string | null };
+// A chair with its derived `callTime` and `segmentLabel` folded in (ADR-0072 §2 / #884, re-pointed
+// by ADR-0081 §3) — never selected from the DB, computed in `mapBooking` from the chair's Lineup's
+// segments against the booking's `sets` and `packages`.
+export type BandChair = BookingDetailRow['bandChairs'][number] & {
+  callTime: string | null;
+  segmentLabel: string | null;
+};
 
 // A person on this gig (ADR-0072 §2/§5 / #885) — the row shape the query's `bandMembers` filter
 // (`removedAt: null`) already guarantees is never a removed one.
@@ -114,17 +117,21 @@ function deriveCallTimes(
   return result;
 }
 
-// A Lineup's call time is the earliest across the segments it plays (ADR-0081 §4) — at this slice
-// every Lineup plays at most one segment, so this reduces to `deriveCallTimes`' per-package lookup;
-// the union generalises unchanged once #987 lets a Lineup play several.
+// A Lineup's call time (#983/#991: paired with which segment produced it, so the UI can show
+// "Wedding Ceremony 11:30" instead of a bare time) is the earliest across the segments it plays
+// (ADR-0081 §4) — at this slice every Lineup plays at most one segment, so this reduces to
+// `deriveCallTimes`' per-package lookup; the union generalises unchanged once #987 lets a Lineup
+// play several. `segmentId` is the winning `packageId` (including `null`, the package-less bucket).
+type LineupCallTime = { startTime: string; segmentId: string | null };
+
 function deriveLineupCallTimes(
   lineups: Array<{ id: string; packageIds: string[] }>,
   callTimesByPackage: Map<string | null, string>,
-): Map<string, string> {
-  const result = new Map<string, string>();
+): Map<string, LineupCallTime> {
+  const result = new Map<string, LineupCallTime>();
   for (const lineup of lineups) {
-    const callTime = earliestAcrossSegments(lineup.packageIds, callTimesByPackage);
-    if (callTime != null) result.set(lineup.id, callTime);
+    const earliest = earliestAcrossSegments(lineup.packageIds, callTimesByPackage);
+    if (earliest != null) result.set(lineup.id, earliest);
   }
   return result;
 }
@@ -134,17 +141,17 @@ function deriveLineupCallTimes(
 function earliestAcrossSegments(
   packageIds: string[],
   callTimesByPackage: Map<string | null, string>,
-): string | null {
+): LineupCallTime | null {
   const segments: Array<string | null> = packageIds.length ? packageIds : [null];
-  let best: { startTime: string; minutes: number } | null = null;
+  let best: { startTime: string; minutes: number; segmentId: string | null } | null = null;
   for (const segment of segments) {
     const startTime = callTimesByPackage.get(segment);
     if (startTime == null) continue;
     const minutes = startMinutes(startTime);
     if (minutes == null) continue;
-    if (!best || minutes < best.minutes) best = { startTime, minutes };
+    if (!best || minutes < best.minutes) best = { startTime, minutes, segmentId: segment };
   }
-  return best?.startTime ?? null;
+  return best ? { startTime: best.startTime, segmentId: best.segmentId } : null;
 }
 
 const VALID_STATUSES = new Set<string>(Object.values(BookingStatus));
@@ -812,6 +819,7 @@ export class BookingsService {
     const { musicFormConfig, musicFormResponse, contracts, bandChairs, bandMembers, lineups, ...rest } = booking;
     const bandLineups = this.mapBandLineups(lineups);
     const callTimesByLineup = deriveLineupCallTimes(bandLineups, deriveCallTimes(booking.sets ?? []));
+    const packageLabelById = new Map((rest.packages ?? []).map((p) => [p.id, p.label]));
     return {
       ...rest,
       hasMusicFormConfig: !!musicFormConfig,
@@ -826,7 +834,7 @@ export class BookingsService {
       // ADR-0073 §6: the organiser read path. Removed members are already excluded by the query.
       band: {
         lineups: bandLineups,
-        chairs: this.mapBandChairs(bandChairs, callTimesByLineup),
+        chairs: this.mapBandChairs(bandChairs, callTimesByLineup, packageLabelById),
         members: bandMembers ?? [],
       },
     };
@@ -843,9 +851,14 @@ export class BookingsService {
 
   private mapBandChairs(
     chairs: BookingDetailRow['bandChairs'],
-    callTimesByLineup: Map<string, string>,
+    callTimesByLineup: Map<string, LineupCallTime>,
+    packageLabelById: Map<string, string>,
   ): BandChair[] {
-    return (chairs ?? []).map((chair) => ({ ...chair, callTime: callTimesByLineup.get(chair.lineupId) ?? null }));
+    return (chairs ?? []).map((chair) => {
+      const derived = callTimesByLineup.get(chair.lineupId) ?? null;
+      const segmentLabel = derived?.segmentId != null ? packageLabelById.get(derived.segmentId) ?? null : null;
+      return { ...chair, callTime: derived?.startTime ?? null, segmentLabel };
+    });
   }
 
   private normaliseContract(

@@ -167,7 +167,9 @@ export class BookingLineupDto {
 // throughout Band members v1's first slice — a vacancy is `memberId = null`, a first-class thing
 // the musician looks at, not an absence. `callTime` is derived (never stored) from the earliest
 // `PerformanceSet.startTime` across the chair's Lineup's segments, and is absent — not zero, not a
-// placeholder — when none of them has a start time.
+// placeholder — when none of them has a start time. `segmentLabel` is the booking-level Package
+// that produced it (e.g. "Wedding Ceremony"), derived alongside it; null for a package-less/whole-
+// day segment, where the UI falls back to the bare time.
 export class BookingBandChairDto {
   @ApiProperty() id: string;
   @ApiProperty({ description: 'ISO 8601 timestamp' }) createdAt: string;
@@ -189,6 +191,13 @@ export class BookingBandChairDto {
     description: "Derived from the Lineup's segments' earliest PerformanceSet.startTime (HH:mm); null when unset.",
   })
   callTime: string | null;
+
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    description: 'The Package whose segment produced callTime (e.g. "Wedding Ceremony"); null when package-less.',
+  })
+  segmentLabel: string | null;
 }
 
 // The narrow contact shape a band member row nests (#885) — id/name/email only, mirroring the

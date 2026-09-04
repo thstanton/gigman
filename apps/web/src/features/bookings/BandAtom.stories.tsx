@@ -30,6 +30,7 @@ const fourPieceChairs = (lineupId: string, memberIds: Array<string | null> = [nu
     lineupId,
     memberId: memberIds[i] ?? null,
     callTime: '18:00',
+    segmentLabel: null,
   }));
 
 const sam = bandMember({
@@ -136,9 +137,9 @@ export const TwoLineups: Story = {
       { id: 'lu-seven', label: 'My seven-piece', packageIds: [EVENING] },
     ],
     chairs: [
-      { id: 'ch-piano', role: 'Piano', order: 1, lineupId: 'lu-solo', memberId: 'm-sam', callTime: '13:00' },
-      { id: 'ch-keys', role: 'Keys', order: 1, lineupId: 'lu-seven', memberId: 'm-sam', callTime: '19:30' },
-      { id: 'ch-bass', role: 'Bass', order: 2, lineupId: 'lu-seven', memberId: null, callTime: '19:30' },
+      { id: 'ch-piano', role: 'Piano', order: 1, lineupId: 'lu-solo', memberId: 'm-sam', callTime: '13:00', segmentLabel: 'Drinks Reception' },
+      { id: 'ch-keys', role: 'Keys', order: 1, lineupId: 'lu-seven', memberId: 'm-sam', callTime: '19:30', segmentLabel: 'Evening Party' },
+      { id: 'ch-bass', role: 'Bass', order: 2, lineupId: 'lu-seven', memberId: null, callTime: '19:30', segmentLabel: 'Evening Party' },
     ],
     members: [sam],
   },
@@ -201,7 +202,7 @@ export const UnnamedLineup: Story = {
   args: {
     packages: [],
     lineups: [{ id: 'lu-1', label: null, packageIds: [] }],
-    chairs: [{ id: 'ch1', role: 'Saxophone', order: 1, lineupId: 'lu-1', memberId: null, callTime: null }],
+    chairs: [{ id: 'ch1', role: 'Saxophone', order: 1, lineupId: 'lu-1', memberId: null, callTime: null, segmentLabel: null }],
     lineupTemplates: [],
   },
   play: async ({ canvasElement }) => {

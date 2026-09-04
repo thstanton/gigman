@@ -1512,6 +1512,39 @@ describe('BookingsService', () => {
       expect(result.band.lineups[0].packageIds).toEqual(['reception', 'drinks']);
     });
 
+    it("resolves segmentLabel from the Package that produced the winning call time (#991 preprod follow-up)", async () => {
+      const raw = {
+        ...booking,
+        musicFormConfig: null,
+        musicFormResponse: null,
+        packages: [{ id: 'pkg1', label: 'Wedding Ceremony', icon: 'music', order: 1 }],
+        sets: [
+          { id: 's1', packageId: 'pkg1', startTime: '11:30', order: 1 },
+          { id: 's2', packageId: null, startTime: '17:00', order: 2 },
+        ],
+        lineups: [
+          { id: 'lu1', label: null, bookingId: 'b1', packages: [{ packageId: 'pkg1' }] },
+          { id: 'lu2', label: null, bookingId: 'b1', packages: [] },
+        ],
+        bandChairs: [
+          { id: 'ch1', bookingId: 'b1', role: 'Sax', order: 1, lineupId: 'lu1', memberId: null },
+          { id: 'ch2', bookingId: 'b1', role: 'Drums', order: 2, lineupId: 'lu2', memberId: null },
+        ],
+      };
+      repo.findOne.mockResolvedValue(raw);
+      const result = await service.findOne('u1', 'b1');
+      expect(result.band.chairs.find((c) => c.id === 'ch1')).toMatchObject({
+        callTime: '11:30',
+        segmentLabel: 'Wedding Ceremony',
+      });
+      // The package-less segment (packageId: null) has no Package row to label — falls back to the
+      // bare time, as before this field existed.
+      expect(result.band.chairs.find((c) => c.id === 'ch2')).toMatchObject({
+        callTime: '17:00',
+        segmentLabel: null,
+      });
+    });
+
     it('is an empty array when the booking has no chairs or lineups', async () => {
       const raw = { ...booking, musicFormConfig: null, musicFormResponse: null, packages: [], sets: [], lineups: [], bandChairs: [] };
       repo.findOne.mockResolvedValue(raw);
