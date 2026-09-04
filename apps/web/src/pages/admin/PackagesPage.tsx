@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@clerk/react';
 import { Music } from 'lucide-react';
@@ -6,11 +6,12 @@ import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { apiGet } from '@/lib/api';
 import { isEnabled } from '@/lib/featureFlags';
+import { useLineupTemplates } from '@/lib/hooks/useLineupTemplates';
 import { PACKAGE_CATEGORY_LABELS, PACKAGE_CATEGORY_ORDER } from '@/lib/constants';
 import type { LineupTemplate, PackageTemplate } from '@/types/api';
 import { EmptyState } from '@/components/common/EmptyState';
 import { PageSection } from '@/components/common/PageSection';
-import { PackageCard } from '@/features/packages/PackageCard';
+import { PackageCard, resolveDefaultLineup } from '@/features/packages/PackageCard';
 import { PackageDrawer, type PackageDrawerMode } from '@/features/packages/PackageDrawer';
 import { LineupList } from '@/features/packages/LineupList';
 import { LineupDrawer, type LineupDrawerMode } from '@/features/packages/LineupDrawer';
@@ -39,10 +40,7 @@ function CategoryGroup({
           <PackageCard
             key={pkg.id}
             pkg={pkg}
-            lineup={
-              lineupsById &&
-              (pkg.defaultLineupTemplateId ? lineupsById.get(pkg.defaultLineupTemplateId) ?? null : null)
-            }
+            lineup={resolveDefaultLineup(pkg, lineupsById)}
             onEdit={onEdit}
           />
         ))}
@@ -105,15 +103,8 @@ export default function PackagesPage() {
 
   // #990: same key + gate PackageDrawer already fetches under — TanStack dedupes it. Undefined
   // (flag off) is threaded through to PackageCard, which renders no Default lineup block at all.
-  const { data: lineups } = useQuery({
-    queryKey: ['lineups'],
-    queryFn: () => apiGet<LineupTemplate[]>('/lineups'),
-    enabled: isLoaded && bandMembersEnabled,
-  });
-  const lineupsById = useMemo(
-    () => lineups && new Map(lineups.map((l) => [l.id, l])),
-    [lineups],
-  );
+  const { data: lineups } = useLineupTemplates(bandMembersEnabled);
+  const lineupsById = lineups && new Map(lineups.map((l) => [l.id, l]));
 
   const grouped = PACKAGE_CATEGORY_ORDER.reduce<Record<string, PackageTemplate[]>>((acc, cat) => {
     acc[cat] = packages.filter((p) => p.category === cat);

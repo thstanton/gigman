@@ -13,6 +13,30 @@ import { PackageMusicSummary } from '@/features/packages/PackageMusicSummary';
 // PackagesPage. `undefined` means "no library to resolve against" (flag off — render nothing, same
 // as PackageForm's own `{lineups && (…)}` gate); `null` means "resolved, and unset" (render the
 // block with "None").
+export function resolveDefaultLineup(
+  pkg: PackageTemplate,
+  lineupsById: Map<string, LineupTemplate> | undefined,
+): LineupTemplate | null | undefined {
+  if (!lineupsById) return undefined;
+  if (!pkg.defaultLineupTemplateId) return null;
+  return lineupsById.get(pkg.defaultLineupTemplateId) ?? null;
+}
+
+// #990: sibling of PackageMusicSummary, never inside it — that component is shared with the
+// booking-time PackagePicker preview, where #982 decided parts are not repeated. `undefined`
+// (no library — flag off) renders nothing at all.
+function DefaultLineupBlock({ lineup }: { lineup: LineupTemplate | null | undefined }) {
+  if (lineup === undefined) return null;
+  return (
+    <div>
+      <SubLabel>Default lineup</SubLabel>
+      <p className={lineup ? 'text-sm text-foreground' : 'text-sm text-muted'}>
+        {lineup ? lineup.label : 'None'}
+      </p>
+    </div>
+  );
+}
+
 export function PackageCard({
   pkg,
   lineup,
@@ -69,18 +93,7 @@ export function PackageCard({
         </ul>
       )}
 
-      {/* #990: sibling of PackageMusicSummary, never inside it — that component is shared with
-          the booking-time PackagePicker preview, where #982 decided parts are not repeated. */}
-      {lineup !== undefined && (
-        <div>
-          <SubLabel>Default lineup</SubLabel>
-          {lineup ? (
-            <p className="text-sm text-foreground">{lineup.label}</p>
-          ) : (
-            <p className="text-sm text-muted">None</p>
-          )}
-        </div>
-      )}
+      <DefaultLineupBlock lineup={lineup} />
 
       {/* Intrinsic template data on the management surface — always shown when present (no gate). */}
       <PackageMusicSummary genres={pkg.defaultGenreSelection} moments={pkg.keyMoments} />
