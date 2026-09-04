@@ -33,6 +33,34 @@ function hasAddress(a: AddressFields): boolean {
   return Boolean(a.addressLine1.trim() || a.city.trim() || a.postcode.trim() || a.placeId);
 }
 
+function toBusinessAddressPayload(a: AddressFields): Partial<UserProfile> {
+  return {
+    addressLine1: a.addressLine1 || null,
+    addressLine2: a.addressLine2 || null,
+    city: a.city || null,
+    county: a.county || null,
+    postcode: a.postcode || null,
+    country: a.country || null,
+    latitude: a.latitude,
+    longitude: a.longitude,
+    placeId: a.placeId,
+  };
+}
+
+function toTravelBasePayload(a: AddressFields): Partial<UserProfile> {
+  return {
+    travelBaseAddressLine1: a.addressLine1 || null,
+    travelBaseAddressLine2: a.addressLine2 || null,
+    travelBaseCity: a.city || null,
+    travelBaseCounty: a.county || null,
+    travelBasePostcode: a.postcode || null,
+    travelBaseCountry: a.country || null,
+    travelBaseLatitude: a.latitude,
+    travelBaseLongitude: a.longitude,
+    travelBasePlaceId: a.placeId,
+  };
+}
+
 const schema = z.object({
   businessName: z.string().min(1, 'Business name is required'),
   displayName: z.string().optional(),
@@ -81,24 +109,8 @@ export default function OnboardingProfilePage() {
       });
       if (hasAddress(address)) {
         await apiPatch<UserProfile>('/me', {
-          addressLine1: address.addressLine1 || null,
-          addressLine2: address.addressLine2 || null,
-          city: address.city || null,
-          county: address.county || null,
-          postcode: address.postcode || null,
-          country: address.country || null,
-          latitude: address.latitude,
-          longitude: address.longitude,
-          placeId: address.placeId,
-          travelBaseAddressLine1: address.addressLine1 || null,
-          travelBaseAddressLine2: address.addressLine2 || null,
-          travelBaseCity: address.city || null,
-          travelBaseCounty: address.county || null,
-          travelBasePostcode: address.postcode || null,
-          travelBaseCountry: address.country || null,
-          travelBaseLatitude: address.latitude,
-          travelBaseLongitude: address.longitude,
-          travelBasePlaceId: address.placeId,
+          ...toBusinessAddressPayload(address),
+          ...toTravelBasePayload(address),
         });
       }
     },
