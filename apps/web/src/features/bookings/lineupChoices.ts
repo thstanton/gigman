@@ -74,27 +74,22 @@ export function groupLineupChoices(
   const order: string[] = [];
   const packagesByLineup = new Map<string, string[]>();
 
+  function group(lineupTemplateId: string): string[] {
+    let packageIds = packagesByLineup.get(lineupTemplateId);
+    if (packageIds) return packageIds;
+    packageIds = [];
+    packagesByLineup.set(lineupTemplateId, packageIds);
+    order.push(lineupTemplateId);
+    return packageIds;
+  }
+
   for (const packageTemplateId of selectedPackageTemplateIds) {
     const lineupTemplateId = effectivePackageLineup(choices, packageTemplateId, packageTemplates);
-    if (!lineupTemplateId) continue;
-    if (!packagesByLineup.has(lineupTemplateId)) {
-      packagesByLineup.set(lineupTemplateId, []);
-      order.push(lineupTemplateId);
-    }
-    packagesByLineup.get(lineupTemplateId)!.push(packageTemplateId);
+    if (lineupTemplateId) group(lineupTemplateId).push(packageTemplateId);
   }
+  choices.standalone.forEach(group);
 
-  for (const lineupTemplateId of choices.standalone) {
-    if (!packagesByLineup.has(lineupTemplateId)) {
-      packagesByLineup.set(lineupTemplateId, []);
-      order.push(lineupTemplateId);
-    }
-  }
-
-  return order.map((lineupTemplateId) => ({
-    lineupTemplateId,
-    packageTemplateIds: packagesByLineup.get(lineupTemplateId)!,
-  }));
+  return order.map((lineupTemplateId) => ({ lineupTemplateId, packageTemplateIds: group(lineupTemplateId) }));
 }
 
 /**
