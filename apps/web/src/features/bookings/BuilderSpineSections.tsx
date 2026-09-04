@@ -3,6 +3,7 @@ import { OverviewSection } from '@/features/bookings/OverviewSection';
 import { PeopleSection } from '@/features/bookings/PeopleSection';
 import { VenueSection } from '@/features/bookings/VenueSection';
 import { TemplatesSection } from '@/features/bookings/TemplatesSection';
+import { BandSection } from '@/features/bookings/BandSection';
 import { ItinerarySection } from '@/features/bookings/ItinerarySection';
 import { DetailsSection } from '@/features/bookings/DetailsSection';
 import { MusicSection } from '@/features/bookings/MusicSection';
@@ -13,8 +14,8 @@ import type { useBookingBuilderMutations } from '@/features/bookings/useBookingB
 import type { SpineId } from '@/features/bookings/builderCompleteness';
 import type { BookingDetail } from '@/types/api';
 
-// The eight spine concerns, in spine order, plus the mobile-only Done button
-// that follows them. Split out of BookingBuilderPage (#992 follow-up) so the
+// The spine concerns, in spine order, plus the mobile-only Done button that
+// follows them. Split out of BookingBuilderPage (#992 follow-up) so the
 // page's own function body stays a routing/composition-root shell rather
 // than a 149-line prop-threading block.
 export function BuilderSpineSections({
@@ -24,6 +25,7 @@ export function BuilderSpineSections({
   queries,
   mutations,
   registerSectionRef,
+  bandMembersEnabled,
   onDone,
 }: {
   booking: BookingDetail;
@@ -32,6 +34,8 @@ export function BuilderSpineSections({
   queries: ReturnType<typeof useBookingBuilderQueries>;
   mutations: ReturnType<typeof useBookingBuilderMutations>;
   registerSectionRef: Record<SpineId, React.RefCallback<HTMLElement>>;
+  /** #991: Band ships dark, gated like every other band surface. */
+  bandMembersEnabled: boolean;
   onDone: () => void;
 }) {
   const { seriesList, templates, templatesLoading, musicConfig, musicConfigLoading } = queries;
@@ -63,6 +67,9 @@ export function BuilderSpineSections({
         mutations={mutations}
         refCallback={registerSectionRef.templates}
       />
+      {bandMembersEnabled && (
+        <BandSection booking={booking} bookingId={bookingId} refCallback={registerSectionRef.band} />
+      )}
       <ItinerarySection
         booking={booking}
         bookingId={bookingId}

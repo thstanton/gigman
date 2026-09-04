@@ -13,13 +13,16 @@ export type SpineId =
   | 'people'
   | 'venue'
   | 'templates'
+  | 'band'
   | 'itinerary'
   | 'details'
   | 'music'
   | 'notes';
 
-// Only People, Venue and Itinerary report a status; the other five concerns
-// make no completeness claim and resolve to null.
+// Only People, Venue and Itinerary report a status; the other six concerns
+// make no completeness claim and resolve to null. Band is one of them (#991,
+// #900 pins the checklist's own "Choose a lineup" predicate to the booking's
+// chairs instead — this rail stays silent on it).
 export type CompletenessStatus = 'set' | 'partial' | 'unset' | 'empty' | null;
 
 // `className` overrides the default status colour — the stepper passes

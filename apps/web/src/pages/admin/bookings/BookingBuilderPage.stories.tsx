@@ -53,6 +53,10 @@ export const AllSections: Story = {
     await expect(canvas.getAllByRole('heading', { name: 'Details' })[0]).toBeVisible();
     await expect(canvas.getAllByRole('heading', { name: 'Music' })[0]).toBeVisible();
     await expect(canvas.getAllByRole('heading', { name: 'Notes' })[0]).toBeVisible();
+    // #991: the ninth spine section, Band, is deliberately absent — VITE_FEATURE_BAND_MEMBERS
+    // is unset in Storybook (same limitation #990 hit), so this asserts the flagged-off state
+    // stays exactly the eight sections above rather than silently gaining a ninth heading.
+    await expect(canvas.queryByRole('heading', { name: 'Band' })).not.toBeInTheDocument();
     // Completeness rail is present on desktop.
     await expect(canvas.getByText('Sections')).toBeVisible();
     // Done button is accessible.

@@ -66,6 +66,7 @@ export function buildCompletenessMap(booking: BookingDetail): Record<SpineId, Co
     people:     booking.customer ? 'set' : 'unset',
     venue:      booking.venue ? 'set' : 'unset',
     templates:  null,
+    band:       null,
     itinerary:  itineraryStatus(booking.sets.length, hasAllAnchors),
     details:    null,
     music:      null,
@@ -81,12 +82,19 @@ function isUndone(status: CompletenessStatus): boolean {
 // derive their section lists from the same completeness map — one place to
 // keep the "which sections still need attention" and "what does the stepper
 // show" derivations in sync with each other and with the spine order.
-export function deriveBuilderNav(completeness: Record<SpineId, CompletenessStatus>): {
+//
+// `spine` defaults to the full SPINE; pass the flag-filtered list (#991 — the
+// Booking Builder page excludes 'band' from it when the flag is off) so a
+// flagged-off Band never surfaces as a nav entry with nothing to scroll to.
+export function deriveBuilderNav(
+  completeness: Record<SpineId, CompletenessStatus>,
+  spine: typeof SPINE = SPINE,
+): {
   undone: Array<{ id: SpineId; label: string }>;
   stepperSections: StepperSection[];
 } {
   return {
-    undone: SPINE.filter(({ id }) => isUndone(completeness[id])),
-    stepperSections: SPINE.map(({ id, label }) => ({ id, label, status: completeness[id] })),
+    undone: spine.filter(({ id }) => isUndone(completeness[id])),
+    stepperSections: spine.map(({ id, label }) => ({ id, label, status: completeness[id] })),
   };
 }

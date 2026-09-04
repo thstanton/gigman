@@ -3,12 +3,14 @@ import { cn } from '@/lib/utils';
 import { CompletenessStatusIcon, type CompletenessStatus, type SpineId } from './builderCompleteness';
 
 // Mobile-only ambient progress for the Booking Builder one-pager (ADR-0051).
-// A horizontal stepper of all eight spine sections, connected by lines. The
-// three status-bearing concerns (People, Venue, Itinerary) show the same
-// completeness glyphs as the desktop CompletenessRail; the other five render as
-// plain position dots (they make no completeness claim). The active node is
-// highlighted and its label shown as text. Tapping a node jumps to that section.
-// Presentational only — scroll-spy and section refs live in useBuilderScroll.
+// A horizontal stepper of the visible spine sections (#991: Band is dropped
+// from `sections` when its flag is off — see visibleSpine), connected by
+// lines. The three status-bearing concerns (People, Venue, Itinerary) show
+// the same completeness glyphs as the desktop CompletenessRail; the rest
+// render as plain position dots (they make no completeness claim). The active
+// node is highlighted and its label shown as text. Tapping a node jumps to
+// that section. Presentational only — scroll-spy and section refs live in
+// useBuilderScroll.
 
 export interface StepperSection {
   id: SpineId;
