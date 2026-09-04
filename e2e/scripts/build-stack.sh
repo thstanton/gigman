@@ -21,4 +21,7 @@ npm run build -w @gigloop/api
 
 # VITE_API_BASE_URL points the served web build at the e2e API (port 3100, off
 # the dev port). An explicit shell var wins over apps/web/.env.local in Vite.
-VITE_API_BASE_URL="http://localhost:3100/api" npm run build -w @gigloop/web
+# VITE_FEATURE_BAND_MEMBERS: on, so the curated create-flow spec can exercise the
+# lineup-choice control (#989) — band members (#879 onward) had no e2e coverage
+# at all before this; the flag was never set here or in ci.yml's e2e env.
+VITE_API_BASE_URL="http://localhost:3100/api" VITE_FEATURE_BAND_MEMBERS="true" npm run build -w @gigloop/web

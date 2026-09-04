@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { BookingStatus, type Contact } from '@prisma/client';
 import { prisma } from '../support/prisma';
-import { seedContact } from '../support/seed';
+import { seedContact, seedPackageTemplateWithDefaultLineup, type PackageTemplateWithDefaultLineup } from '../support/seed';
 
 // The create journey (ADR-0048 §7, slice 2). This is the one flow where building
 // the entity through the UI is the point (vs. Prisma-seeding it): arrange only
@@ -16,9 +16,14 @@ test.describe('create booking', () => {
   // assertion below throws; reset each test so a failed run never deletes a
   // later run's booking.
   let createdBookingId: string | undefined;
+  // #989: only the "Decide later" test seeds this — library fixtures, not
+  // booking-scoped, so afterEach must clean them up independently of
+  // createdBookingId (a thrown assertion must not leak them into the next run).
+  let templateFixture: PackageTemplateWithDefaultLineup | undefined;
 
   test.beforeEach(async () => {
     createdBookingId = undefined;
+    templateFixture = undefined;
     customer = await seedContact();
   });
 
@@ -27,6 +32,12 @@ test.describe('create booking', () => {
     // (verified against a UI-created booking). Then the now-unreferenced customer.
     if (createdBookingId) {
       await prisma.booking.deleteMany({ where: { id: createdBookingId } });
+    }
+    if (templateFixture) {
+      // packageTemplate.defaultLineupTemplateId is ON DELETE SET NULL (mirrors resetTestData),
+      // so package-then-lineup order isn't load-bearing, but keeps the same order regardless.
+      await prisma.packageTemplate.deleteMany({ where: { id: templateFixture.packageTemplateId } });
+      await prisma.lineupTemplate.deleteMany({ where: { id: templateFixture.lineupTemplateId } });
     }
     await prisma.contact.deleteMany({ where: { id: customer.id } });
   });
@@ -100,5 +111,58 @@ test.describe('create booking', () => {
     expect(booking?.status).toBe(BookingStatus.CONFIRMED);
     expect(booking?.title).toBe(title);
     expect(Number(booking?.fee)).toBe(1500);
+  });
+
+  // #989: a package template's default lineup is a genuine *pre-selection* — offered, not
+  // asserted — so overriding it away to "Decide later" must persist zero Lineups, not fall back
+  // to the template default. Requires VITE_FEATURE_BAND_MEMBERS / FEATURE_BAND_MEMBERS on (see
+  // e2e/scripts/build-stack.sh and playwright.config.ts's API webServer env).
+  test('override a package\'s pre-filled lineup to "Decide later" → no Lineup is created', async ({ page }) => {
+    templateFixture = await seedPackageTemplateWithDefaultLineup();
+
+    const now = new Date();
+    const target = new Date(now.getFullYear(), now.getMonth() + 1, 15);
+    const dayLabel = target.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+
+    await page.goto('/admin/bookings/new');
+
+    await page.getByRole('button', { name: 'Pick a date' }).click();
+    await page.getByRole('button', { name: 'Next month' }).click();
+    await page.getByRole('button', { name: dayLabel, exact: true }).click();
+
+    await page.getByRole('tab', { name: 'Select existing' }).first().click();
+    await page.getByRole('combobox', { name: 'Select customer...' }).click();
+    await page.getByRole('combobox', { name: 'Search or create new customer' }).fill(customer.name);
+    await page.getByRole('option', { name: customer.name }).click();
+
+    // --- Select the package template: it leaves the chip row and becomes a block with a
+    // pre-filled "Who plays this?" select (the template's own defaultLineupTemplateId). ---
+    await page.getByRole('button', { name: templateFixture.packageLabel, exact: true }).click();
+    const lineupSelect = page.getByRole('combobox', { name: 'Who plays this?' });
+    await expect(lineupSelect).toContainText(templateFixture.lineupLabel);
+
+    // --- Override the pre-selection to "Decide later". The sibling Lineup section must reflect
+    // it too — no group active, so its persistent no-lineup caption shows. ---
+    await lineupSelect.click();
+    await page.getByRole('option', { name: 'Decide later' }).click();
+    await expect(lineupSelect).toContainText('Decide later');
+    await expect(
+      page.getByText('Decide later — no lineup is applied until you choose one.'),
+    ).toBeVisible();
+
+    await page.getByRole('button', { name: 'Next: Reminders' }).click();
+    await page.getByRole('button', { name: 'Create booking' }).click();
+    await page.getByRole('button', { name: 'Finish' }).click();
+    await page.waitForURL(/\/admin\/bookings\/[0-9a-f-]{36}$/);
+    createdBookingId = page.url().split('/').pop();
+    expect(createdBookingId).toBeTruthy();
+
+    // --- The package still applies (its sets/label are independent of its lineup choice) but no
+    // Lineup is created — "Decide later" must not collapse into the template-default fallback. ---
+    const packages = await prisma.package.findMany({ where: { bookingId: createdBookingId! } });
+    expect(packages).toHaveLength(1);
+    expect(packages[0].label).toBe(templateFixture.packageLabel);
+    const lineups = await prisma.lineup.findMany({ where: { bookingId: createdBookingId! } });
+    expect(lineups).toHaveLength(0);
   });
 });

@@ -83,6 +83,11 @@ export default defineConfig({
             DATABASE_URL: process.env.DATABASE_URL ?? '',
             DIRECT_URL: process.env.DIRECT_URL ?? process.env.DATABASE_URL ?? '',
             CLERK_SECRET_KEY: process.env.CLERK_SECRET_KEY ?? '',
+            // Matches build-stack.sh's VITE_FEATURE_BAND_MEMBERS: GET /lineups (and every other
+            // band-roster route) 404s server-side without this, flag-off, regardless of the web
+            // build (#989). Booking create's own `lineups` field is unaffected either way —
+            // bookings.controller.ts only gates the band-specific routes on this flag.
+            FEATURE_BAND_MEMBERS: 'true',
           },
         },
         {

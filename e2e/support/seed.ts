@@ -88,6 +88,49 @@ export async function seedContact(userId: string = E2E_TEST_USER_ID): Promise<Co
   });
 }
 
+export interface PackageTemplateWithDefaultLineup {
+  packageTemplateId: string;
+  packageLabel: string;
+  lineupTemplateId: string;
+  lineupLabel: string;
+}
+
+// #989: a package template whose applied lineup is a genuine pre-selection — the fixture the
+// create-flow "Decide later" case overrides away from. `category: 'WEDDING'` matches the create
+// form's default event type, so the template renders as a lead (not "Other packages") chip
+// without the spec having to change the event type first.
+export async function seedPackageTemplateWithDefaultLineup(
+  userId: string = E2E_TEST_USER_ID,
+): Promise<PackageTemplateWithDefaultLineup> {
+  const lineupLabel = 'E2E Trio';
+  const lineupTemplate = await prisma.lineupTemplate.create({
+    data: {
+      userId,
+      label: lineupLabel,
+      slots: { create: [{ userId, role: 'Vocals', order: 1 }, { userId, role: 'Guitar', order: 2 }] },
+    },
+  });
+
+  const packageLabel = 'E2E Reception Package';
+  const packageTemplate = await prisma.packageTemplate.create({
+    data: {
+      userId,
+      label: packageLabel,
+      category: 'WEDDING',
+      icon: 'music',
+      defaultLineupTemplateId: lineupTemplate.id,
+      slots: { create: [{ userId, label: 'Reception', duration: 60, order: 1 }] },
+    },
+  });
+
+  return {
+    packageTemplateId: packageTemplate.id,
+    packageLabel,
+    lineupTemplateId: lineupTemplate.id,
+    lineupLabel,
+  };
+}
+
 export interface LifecycleBooking {
   bookingId: string;
   customerId: string;
