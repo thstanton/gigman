@@ -13,9 +13,11 @@ import { buildBookingSearchWhere } from './booking-search';
 import { INITIAL_BAND_MEMBER_STATUS } from './band-member-status';
 
 // Band members v1 (#879, ADR-0072 §3): carries the default lineup so applyPackageTemplate (#884)
-// can auto-apply it alongside the sets — null when the template has none. Only the apply-to-an-
-// existing-booking path reads this; createWithPackageTemplates (New Booking) never creates chairs
-// (ADR-0072 §6 / ADR-0066 create-mode exclusion), so it simply ignores the extra field.
+// and createWithPackageTemplates (#988) can both auto-apply it alongside the sets — null when
+// the template has none. Chairs created this way are inert (memberId: null, no member row, no
+// bandPortalToken, no fee) — ADR-0066's create-mode exclusion forbids a contact PATCH firing
+// from inside the atomic POST, not a roster existing at creation (Copy Event has carried a full
+// roster at t=0 since #879).
 type PackageTemplateWithSlots = {
   id: string;
   label: string;
@@ -396,6 +398,52 @@ export class BookingsRepository {
     });
   }
 
+  // #988: one Lineup per distinct default lineup template among `orderedTemplates`, linked to
+  // every booking-owned package whose template picked it — templates sharing a lineup share the
+  // one row (ADR-0081 §4), never a heuristic dedupe. `bookingPackages[i]` is the package created
+  // from `orderedTemplates[i]`, so the two arrays are index-aligned.
+  private async createLineupsFromTemplates(
+    ctx: { db: Prisma.TransactionClient | PrismaService; userId: string; bookingId: string },
+    orderedTemplates: PackageTemplateWithSlots[],
+    bookingPackages: Array<{ id: string }>,
+  ) {
+    const { db, userId } = ctx;
+    const lineupIdByTemplateId = new Map<string, string>();
+    for (let tIdx = 0; tIdx < orderedTemplates.length; tIdx++) {
+      const lineupTemplate = orderedTemplates[tIdx].defaultLineupTemplate;
+      if (!lineupTemplate) continue;
+
+      let lineupId = lineupIdByTemplateId.get(lineupTemplate.id);
+      if (!lineupId) {
+        lineupId = await this.createLineupWithChairs(ctx, lineupTemplate);
+        lineupIdByTemplateId.set(lineupTemplate.id, lineupId);
+      }
+      await db.lineupPackage.create({
+        data: { userId, lineupId, packageId: bookingPackages[tIdx].id },
+      });
+    }
+  }
+
+  private async createLineupWithChairs(
+    ctx: { db: Prisma.TransactionClient | PrismaService; userId: string; bookingId: string },
+    lineupTemplate: NonNullable<PackageTemplateWithSlots['defaultLineupTemplate']>,
+  ): Promise<string> {
+    const { db, userId, bookingId } = ctx;
+    const lineup = await db.lineup.create({
+      data: { userId, bookingId, label: lineupTemplate.label },
+    });
+    await db.bookingBandChair.createMany({
+      data: lineupTemplate.slots.map((slot, i) => ({
+        userId,
+        bookingId,
+        lineupId: lineup.id,
+        order: i + 1,
+        role: slot.role,
+      })),
+    });
+    return lineup.id;
+  }
+
   async createWithPackageTemplates(
     userId: string,
     dto: CreateBookingDto,
@@ -442,6 +490,13 @@ export class BookingsRepository {
         });
       }
     }
+
+    // Create Lineups from each template's default lineup (#988): templates that declare the
+    // same default lineup collapse to one Lineup linked to every segment it plays (ADR-0081
+    // §4) — the direct expression of "same band, both segments", not a heuristic. Written
+    // inline against `tx` — never via applyPackageTemplate, which opens its own $transaction
+    // and would nest inside this atomic create (exactly what ADR-0047 forbids).
+    await this.createLineupsFromTemplates({ db, userId, bookingId: booking.id }, orderedTemplates, bookingPackages);
 
     // Create music form config when enabled, seeded from the chosen package templates
     if (enableMusicForm) {
