@@ -15,6 +15,15 @@
        clears WCAG AA for normal text on --accent (4.75:1) and on white
        (5.64:1); see ADR-0039. */
     --muted: 30 8% 40%;
+    /* VOID's dedicated text color (#1004) — distinct from --muted. VOID
+       renders its label on top of a translucent wash of --muted itself
+       (bg-muted/20 on the contract row, bg-muted/40 on the invoice pill);
+       compositing text-muted over its own wash fails AA (3.93:1 / 2.94:1).
+       Same hue/saturation family as --muted, darker (28% vs 40%) so it
+       clears AA against both washes (6.35:1 / 4.76:1) while staying
+       lighter than --foreground, so VOID still reads as receded. See the
+       "Amended by #977" section of ADR-0039. */
+    --void: 30 8% 28%;
     --foreground: 25 25% 11%;
 
     /* Primary — deep forest green */

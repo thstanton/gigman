@@ -41,6 +41,12 @@ const config: Config = {
         muted: {
           DEFAULT: 'hsl(var(--muted))',
         },
+        // VOID's dedicated text color (#1004) — darker than `muted` so its
+        // label clears AA on top of the shared muted washes it sits on
+        // (bg-muted/20, bg-muted/40). See ADR-0039's "Amended by #977".
+        void: {
+          DEFAULT: 'hsl(var(--void))',
+        },
         foreground: 'hsl(var(--foreground))',
         primary: {
           DEFAULT: 'hsl(var(--primary))',
