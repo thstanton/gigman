@@ -7,15 +7,19 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { PackageDrawer } from '@/features/packages/PackageDrawer';
 import type { PackageFormValues } from '@/features/packages/PackageForm';
+import { LineupDrawer } from '@/features/packages/LineupDrawer';
 import {
   BookingFormFields,
   bookingFormSchema,
   type BookingFormValues,
 } from '@/features/bookings/BookingFormFields';
+import { EMPTY_LINEUP_CHOICES, buildLineupsPayload } from '@/features/bookings/lineupChoices';
 import { ChecklistStep } from '@/features/bookings/ChecklistStep';
 import { CreatedCheckpoint } from '@/features/bookings/CreatedCheckpoint';
 import { useBookingNewData } from '@/features/bookings/useBookingNewData';
 import { useCreateBooking } from '@/features/bookings/useCreateBooking';
+import { useLineupTemplates } from '@/lib/hooks/useLineupTemplates';
+import { isEnabled } from '@/lib/featureFlags';
 import { EVENT_TYPE_LABELS } from '@/lib/constants';
 import type { BookingStatus, ChecklistDefaultItem, PackageTemplate } from '@/types/api';
 
@@ -48,6 +52,7 @@ function buildBookingDefaultValues(state: BookingNewLocationState | null): Booki
     venue: { kind: 'existing', venueId: state?.venueId ?? null },
     packageTemplateIds: [],
     enableMusicForm: false,
+    lineupChoices: EMPTY_LINEUP_CHOICES,
   };
 }
 
@@ -95,6 +100,14 @@ export default function BookingNewPage() {
       isMusicFormDirty: !!dirtyFields.enableMusicForm,
     });
 
+  // #989: the musician's lineup template library — neither this page nor the Builder ran the
+  // ['lineups'] query before #989 (only BookingDetail did, for the Band card). hasLineupTemplates
+  // (ADR-0081 §5 constraint 3) is `lineupTemplates.length > 0`, derived where each surface uses it
+  // rather than threaded as its own prop.
+  const bandMembersEnabled = isEnabled('VITE_FEATURE_BAND_MEMBERS');
+  const { data: lineupTemplates = [] } = useLineupTemplates(bandMembersEnabled);
+  const [lineupDrawerOpen, setLineupDrawerOpen] = useState(false);
+
   const { created, isCreating, isError, create, reset } = useCreateBooking();
 
   if (created) {
@@ -125,6 +138,8 @@ export default function BookingNewPage() {
             formatsLoading={isFormatsLoading}
             series={seriesList}
             onCreateTemplate={openTemplateDrawer}
+            lineupTemplates={lineupTemplates}
+            onCreateLineup={() => setLineupDrawerOpen(true)}
           />
 
           <div className="flex gap-3">
@@ -145,7 +160,18 @@ export default function BookingNewPage() {
           checklistDefaults={checklistDefaults}
           startingStatus={pendingValues.status as BookingStatus}
           onBack={() => { reset(); setStep(1); }}
-          onCreate={(checklistItems: ChecklistDefaultItem[]) => create({ values: pendingValues, checklistItems })}
+          onCreate={(checklistItems: ChecklistDefaultItem[]) =>
+            create({
+              values: pendingValues,
+              checklistItems,
+              lineups: buildLineupsPayload(
+                pendingValues.lineupChoices,
+                pendingValues.packageTemplateIds,
+                formats ?? [],
+                lineupTemplates.length > 0,
+              ),
+            })
+          }
           isCreating={isCreating}
           isError={isError}
         />
@@ -160,6 +186,15 @@ export default function BookingNewPage() {
         initialValues={templateSeed ?? undefined}
         onClose={() => setTemplateSeed(null)}
         onCreated={handleTemplateCreated}
+      />
+
+      {/* #989: mirrors PackageDrawer's mount pattern above. No auto-select on create (unlike
+          handleTemplateCreated) — LineupDrawer invalidates ['lineups'] itself on save, which
+          useLineupTemplates shares, so the new lineup simply appears as a pill to pick. */}
+      <LineupDrawer
+        mode={{ type: 'create' }}
+        open={lineupDrawerOpen}
+        onClose={() => setLineupDrawerOpen(false)}
       />
     </>
   );

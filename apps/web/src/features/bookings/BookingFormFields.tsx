@@ -8,9 +8,11 @@ import { RoleField, type RoleSelection } from './PeopleFields';
 import { VenueFields, type VenueSelection } from './VenueFields';
 import { OverviewFields, type OverviewFieldsValue } from './OverviewFields';
 import { PackagePicker } from './PackagePicker';
+import { LineupSection } from './LineupSection';
+import { addStandaloneLineup, removeStandaloneLineup, setPackageLineupOverride, type LineupChoices } from './lineupChoices';
 import { MusicFormToggle } from './MusicFields';
 import { NotesField } from './NotesFields';
-import type { BookingSeries, PackageTemplate } from '@/types/api';
+import type { BookingSeries, LineupTemplate, PackageTemplate } from '@/types/api';
 
 // ─── Schema ───────────────────────────────────────────────────────────────────
 
@@ -34,9 +36,138 @@ export const bookingFormSchema = z.object({
   venue: z.custom<VenueSelection>(),
   packageTemplateIds: z.array(z.string()),
   enableMusicForm: z.boolean(),
+  // #989: the musician's declared lineup choices — see lineupChoices.ts. Defaults to
+  // EMPTY_LINEUP_CHOICES, which resolves to `lineups: []` ("Decide later") once the musician has
+  // touched anything the control renders for; buildLineupsPayload omits `lineups` entirely when
+  // there are no lineup templates to choose from, regardless of this field's value.
+  lineupChoices: z.custom<LineupChoices>(),
 });
 
 export type BookingFormValues = z.infer<typeof bookingFormSchema>;
+
+// ─── Packages + Lineup (#989) ──────────────────────────────────────────────────
+// Split out of the main component body — both sections write two fields at once
+// (packageTemplateIds/lineupChoices, and lineupChoices alone), and inlining that Controller
+// nesting pushed BookingFormFields' own cyclomatic complexity over threshold.
+
+function PackagesField({
+  control,
+  formats,
+  formatsLoading,
+  eventType,
+  showMusic,
+  onCreateTemplate,
+  lineupTemplates,
+}: {
+  control: Control<BookingFormValues>;
+  formats?: PackageTemplate[];
+  formatsLoading?: boolean;
+  eventType: string;
+  showMusic: boolean;
+  onCreateTemplate?: () => void;
+  lineupTemplates?: LineupTemplate[];
+}) {
+  return (
+    // Packages — shared template picker (ADR-0053 / #546), same component the Builder uses.
+    // Ungated from the music-form flag (packages are performance structure, independent of the
+    // music form); the music-form contribution in previews is what `showMusic` gates. Also
+    // ungated from the library being non-empty (#755): since ADR-0046's 2026-07-07 amendment a
+    // musician's library legitimately starts empty, and hiding the section there hid the only
+    // route to package templates from this flow. PackagePicker already renders its own "no
+    // templates yet" line, so the old length check was redundant.
+    // Creating a template is the shell's job, not the picker's — the picker owns no mutation
+    // and is shared with the Builder (ADR-0053), so the affordance is a callback out.
+    <section>
+      <h2 className="mb-3 text-base font-semibold text-foreground">Package Templates</h2>
+      <div className="rounded-lg border border-border bg-background p-4">
+        <Controller
+          name="packageTemplateIds"
+          control={control}
+          render={({ field: packageField }) => (
+            <Controller
+              name="lineupChoices"
+              control={control}
+              render={({ field: lineupField }) => (
+                <PackagePicker
+                  templates={formats ?? []}
+                  templatesLoading={formatsLoading}
+                  eventType={eventType}
+                  selectedIds={packageField.value}
+                  onToggle={(id) =>
+                    packageField.onChange(
+                      packageField.value.includes(id)
+                        ? packageField.value.filter((x) => x !== id)
+                        : [...packageField.value, id],
+                    )
+                  }
+                  showMusic={showMusic}
+                  lineupTemplates={lineupTemplates}
+                  lineupChoices={lineupField.value}
+                  onPackageLineupChange={(packageTemplateId, lineupTemplateId) =>
+                    lineupField.onChange(setPackageLineupOverride(lineupField.value, packageTemplateId, lineupTemplateId))
+                  }
+                />
+              )}
+            />
+          )}
+        />
+        {onCreateTemplate && (
+          <div className="mt-3">
+            <GhostButton
+              variant="primary"
+              icon={<Plus size={14} aria-hidden="true" />}
+              onClick={onCreateTemplate}
+            >
+              New package template
+            </GhostButton>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function LineupField({
+  control,
+  lineupTemplates,
+  selectedPackageTemplateIds,
+  formats,
+  onCreateLineup,
+}: {
+  control: Control<BookingFormValues>;
+  lineupTemplates?: LineupTemplate[];
+  selectedPackageTemplateIds: string[];
+  formats?: PackageTemplate[];
+  onCreateLineup?: () => void;
+}) {
+  // The sibling section to Package Templates (#989, design #982 variant D). Both controls write
+  // the same `lineupChoices` field; PackagePicker's per-package select and this section's pills
+  // are two granularities of one fact, unified by lineupChoices.ts's grouping. Renders nothing at
+  // all when the musician has no lineup templates (ADR-0081 §5 constraint 3) — LineupSection owns
+  // that guard itself, so it needs no gating here.
+  return (
+    <Controller
+      name="lineupChoices"
+      control={control}
+      render={({ field }) => (
+        <LineupSection
+          lineupTemplates={lineupTemplates ?? []}
+          choices={field.value}
+          selectedPackageTemplateIds={selectedPackageTemplateIds}
+          packageTemplates={formats ?? []}
+          onCreateLineup={onCreateLineup}
+          onToggleLineup={(lineupTemplateId) =>
+            field.onChange(
+              field.value.standalone.includes(lineupTemplateId)
+                ? removeStandaloneLineup(field.value, lineupTemplateId)
+                : addStandaloneLineup(field.value, lineupTemplateId),
+            )
+          }
+        />
+      )}
+    />
+  );
+}
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -55,6 +186,11 @@ interface Props {
    * contract (ADR-0053).
    */
   onCreateTemplate?: () => void;
+  /** #989: the musician's lineup template library. Empty/omitted — PackagePicker renders no
+   *  select and LineupSection renders nothing at all (ADR-0081 §5 constraint 3). */
+  lineupTemplates?: LineupTemplate[];
+  /** Opens the shell's lineup-template drawer, mirroring onCreateTemplate's contract. */
+  onCreateLineup?: () => void;
 }
 
 export function BookingFormFields({
@@ -65,10 +201,15 @@ export function BookingFormFields({
   formatsLoading,
   series,
   onCreateTemplate,
+  lineupTemplates,
+  onCreateLineup,
 }: Props) {
   // The package picker groups templates by the live event type (matching leads), so it reacts as
   // the musician changes it in the Overview section above.
   const eventType = useWatch({ control, name: 'overview.eventType' });
+  // Read-only for the Lineup section's grouping (#989) — it never writes this field, so a watch
+  // is enough; PackagePicker's own Controller below is the one write path for it.
+  const selectedPackageTemplateIds = useWatch({ control, name: 'packageTemplateIds' });
 
   return (
     <div className="space-y-6">
@@ -164,51 +305,23 @@ export function BookingFormFields({
         </div>
       </section>
 
-      {/* Packages — shared template picker (ADR-0053 / #546), same component the Builder uses.
-          Ungated from the music-form flag (packages are performance structure, independent of
-          the music form); the music-form contribution in previews is what `showMusic` gates.
-          Also ungated from the library being non-empty (#755): since ADR-0046's 2026-07-07
-          amendment a musician's library legitimately starts empty, and hiding the section there
-          hid the only route to package templates from this flow. PackagePicker already renders
-          its own "no templates yet" line, so the old length check was redundant.
-          Creating a template is the shell's job, not the picker's — the picker owns no mutation
-          and is shared with the Builder (ADR-0053), so the affordance is a callback out. */}
-      <section>
-        <h2 className="mb-3 text-base font-semibold text-foreground">Package Templates</h2>
-        <div className="rounded-lg border border-border bg-background p-4">
-          <Controller
-            name="packageTemplateIds"
-            control={control}
-            render={({ field }) => (
-              <PackagePicker
-                templates={formats ?? []}
-                templatesLoading={formatsLoading}
-                eventType={eventType}
-                selectedIds={field.value}
-                onToggle={(id) =>
-                  field.onChange(
-                    field.value.includes(id)
-                      ? field.value.filter((x) => x !== id)
-                      : [...field.value, id],
-                  )
-                }
-                showMusic={!!songRequestFormEnabled}
-              />
-            )}
-          />
-          {onCreateTemplate && (
-            <div className="mt-3">
-              <GhostButton
-                variant="primary"
-                icon={<Plus size={14} aria-hidden="true" />}
-                onClick={onCreateTemplate}
-              >
-                New package template
-              </GhostButton>
-            </div>
-          )}
-        </div>
-      </section>
+      <PackagesField
+        control={control}
+        formats={formats}
+        formatsLoading={formatsLoading}
+        eventType={eventType}
+        showMusic={!!songRequestFormEnabled}
+        onCreateTemplate={onCreateTemplate}
+        lineupTemplates={lineupTemplates}
+      />
+
+      <LineupField
+        control={control}
+        lineupTemplates={lineupTemplates}
+        selectedPackageTemplateIds={selectedPackageTemplateIds}
+        formats={formats}
+        onCreateLineup={onCreateLineup}
+      />
 
       {/* Music — on/off only in create (Story 39 lean variant): the shared MusicFormToggle core,
           the same on/off block the Builder's Music atom renders (ADR-0053 / #547). Genre and

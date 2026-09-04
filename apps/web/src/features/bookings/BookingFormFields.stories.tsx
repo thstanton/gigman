@@ -130,14 +130,15 @@ export const ToggleMusicForm: Story = {
 
 export const SelectPackage: Story = {
   name: 'Selecting a package chip flows through the create-form Controller (multiselect)',
+  // #989: selecting a template swaps its underlying element (chip -> block header), so each
+  // assertion re-queries by accessible name rather than reusing a pre-click element reference.
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    const chip = canvas.getByRole('button', { name: 'Wedding Ceremony' });
-    await expect(chip).toHaveAttribute('aria-pressed', 'false');
-    await userEvent.click(chip);
-    await expect(chip).toHaveAttribute('aria-pressed', 'true');
-    await userEvent.click(chip);
-    await expect(chip).toHaveAttribute('aria-pressed', 'false');
+    await expect(canvas.getByRole('button', { name: 'Wedding Ceremony' })).toHaveAttribute('aria-pressed', 'false');
+    await userEvent.click(canvas.getByRole('button', { name: 'Wedding Ceremony' }));
+    await expect(canvas.getByRole('button', { name: 'Wedding Ceremony' })).toHaveAttribute('aria-pressed', 'true');
+    await userEvent.click(canvas.getByRole('button', { name: 'Wedding Ceremony' }));
+    await expect(canvas.getByRole('button', { name: 'Wedding Ceremony' })).toHaveAttribute('aria-pressed', 'false');
   },
 };
 

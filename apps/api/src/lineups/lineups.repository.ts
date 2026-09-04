@@ -24,6 +24,14 @@ export class LineupsRepository {
     });
   }
 
+  // Bulk lookup for booking create (#989) — mirrors BookingsRepository.findPackageTemplates.
+  findByIds(userId: string, ids: string[]) {
+    return this.prisma.lineupTemplate.findMany({
+      where: { id: { in: ids }, userId },
+      include: SLOTS_INCLUDE,
+    });
+  }
+
   create(userId: string, dto: CreateLineupDto) {
     const { slots = [], ...fields } = dto;
     return this.prisma.lineupTemplate.create({

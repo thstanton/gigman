@@ -6,6 +6,7 @@ import type { RoleSelection } from './PeopleFields';
 import type { VenueSelection } from './VenueFields';
 import type {
   BookingDetail,
+  BookingLineupSelectionInput,
   BookingStatus,
   ChecklistDefaultItem,
   Contact,
@@ -50,6 +51,7 @@ function buildBookingPayload(
   values: BookingFormValues,
   ids: ResolvedIds,
   checklistItems: ChecklistDefaultItem[],
+  lineups: BookingLineupSelectionInput[] | undefined,
 ) {
   const { overview } = values;
   return {
@@ -65,6 +67,10 @@ function buildBookingPayload(
     packageTemplateIds: values.packageTemplateIds.length ? values.packageTemplateIds : undefined,
     enableMusicForm: values.enableMusicForm,
     checklistItems,
+    // #989: resolved by the shell (buildLineupsPayload) before this hook sees it — it needs the
+    // full PackageTemplate/hasLineupTemplates facts this hook doesn't carry. Threaded straight
+    // through preserving the three-state contract: undefined stays undefined, never coerced to [].
+    lineups,
     ...buildSeriesPayload(overview),
   };
 }
@@ -72,6 +78,7 @@ function buildBookingPayload(
 interface CreateArgs {
   values: BookingFormValues;
   checklistItems: ChecklistDefaultItem[];
+  lineups: BookingLineupSelectionInput[] | undefined;
 }
 
 // Owns the atomic booking create for the New Booking form (ADR-0047 / ADR-0053): eager-create any
@@ -86,7 +93,7 @@ export function useCreateBooking() {
   const [created, setCreated] = useState<BookingDetail | null>(null);
 
   const mutation = useMutation({
-    mutationFn: async ({ values, checklistItems }: CreateArgs) => {
+    mutationFn: async ({ values, checklistItems, lineups }: CreateArgs) => {
       // Eager-create any `new` contact/venue first, then the atomic FK-only booking POST. Each
       // resolution is cached so a retry after a failed booking POST never re-creates a contact.
       const cache = resolvedIds.current;
@@ -103,6 +110,7 @@ export function useCreateBooking() {
           values,
           { customerId: cache.customerId, bookingAgentId: cache.bookingAgentId, venueId: cache.venueId },
           checklistItems,
+          lineups,
         ),
       );
     },

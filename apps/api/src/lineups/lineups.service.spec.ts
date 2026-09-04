@@ -6,6 +6,7 @@ import { CreateLineupDto } from './dto/create-lineup.dto';
 type MockRepo = {
   findAll: jest.Mock;
   findOne: jest.Mock;
+  findByIds: jest.Mock;
   create: jest.Mock;
   update: jest.Mock;
   delete: jest.Mock;
@@ -15,6 +16,7 @@ function makeRepo(): MockRepo {
   return {
     findAll: jest.fn(),
     findOne: jest.fn(),
+    findByIds: jest.fn(),
     create: jest.fn(),
     update: jest.fn(),
     delete: jest.fn(),
@@ -50,6 +52,17 @@ describe('LineupsService', () => {
 
       expect(repo.findOne).toHaveBeenCalledWith('u1', 'l1');
       expect(result).toEqual(lineup);
+    });
+  });
+
+  describe('findByIds', () => {
+    it('delegates to repo.findByIds, scoped to userId (#989)', async () => {
+      repo.findByIds.mockResolvedValue([lineup]);
+
+      const result = await service.findByIds('u1', ['l1', 'l2']);
+
+      expect(repo.findByIds).toHaveBeenCalledWith('u1', ['l1', 'l2']);
+      expect(result).toEqual([lineup]);
     });
   });
 

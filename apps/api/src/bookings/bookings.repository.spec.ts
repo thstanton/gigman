@@ -336,6 +336,21 @@ describe('BookingsRepository', () => {
       prisma.booking.findFirstOrThrow.mockResolvedValue({ id: 'b1' });
     }
 
+    // Shared by both the #988 (template-derived) and #989 (musician-declared) lineup describes
+    // below: multiple packages/lineups per test, so package/lineup ids must be distinct per call.
+    function primeLineupChain() {
+      prisma.booking.create.mockResolvedValue({ id: 'b1' });
+      let pkgCount = 0;
+      prisma.package.create.mockImplementation(() => Promise.resolve({ id: `pkg${++pkgCount}` }));
+      prisma.performanceSet.create.mockResolvedValue({ id: 's1' });
+      prisma.musicFormConfig.create.mockResolvedValue({ id: 'mfc1' });
+      let lineupCount = 0;
+      prisma.lineup.create.mockImplementation(() => Promise.resolve({ id: `lu${++lineupCount}` }));
+      prisma.lineupPackage.create.mockResolvedValue({ id: 'lp1' });
+      prisma.bookingBandChair.createMany.mockResolvedValue({ count: 0 });
+      prisma.booking.findFirstOrThrow.mockResolvedValue({ id: 'b1' });
+    }
+
     it('creates a booking-owned package snapshotting the template label/icon', async () => {
       primeCreateChain();
       const tmpl = {
@@ -460,19 +475,6 @@ describe('BookingsRepository', () => {
         },
       };
 
-      function primeLineupChain() {
-        prisma.booking.create.mockResolvedValue({ id: 'b1' });
-        let pkgCount = 0;
-        prisma.package.create.mockImplementation(() => Promise.resolve({ id: `pkg${++pkgCount}` }));
-        prisma.performanceSet.create.mockResolvedValue({ id: 's1' });
-        prisma.musicFormConfig.create.mockResolvedValue({ id: 'mfc1' });
-        let lineupCount = 0;
-        prisma.lineup.create.mockImplementation(() => Promise.resolve({ id: `lu${++lineupCount}` }));
-        prisma.lineupPackage.create.mockResolvedValue({ id: 'lp1' });
-        prisma.bookingBandChair.createMany.mockResolvedValue({ count: 0 });
-        prisma.booking.findFirstOrThrow.mockResolvedValue({ id: 'b1' });
-      }
-
       it('creates no Lineup and no chairs for a template with no default lineup', async () => {
         primeLineupChain();
         await repo.createWithPackageTemplates('u1', baseDto, [tmplNoLineup], false);
@@ -563,6 +565,90 @@ describe('BookingsRepository', () => {
         expect(createLineupData).toEqual(applyLineupData);
         expect(createChairData).toEqual(applyChairData);
         expect(createLinkData).toEqual(applyLinkData);
+      });
+    });
+
+    // #989: the musician-declared `lineupSelections` param, threaded from CreateBookingDto's
+    // `lineups` field. Passing it (even `[]`) fully supersedes every template's own
+    // defaultLineupTemplate — the #988 derivation above never runs.
+    describe('lineup selections (#989)', () => {
+      const tmplA = {
+        id: 'f1',
+        label: 'Ceremony',
+        icon: 'heart',
+        keyMoments: [],
+        defaultGenreSelection: [],
+        slots: [{ label: 'Ceremony', duration: 30, order: 1 }],
+        // Deliberately carries a default lineup that a selection must override/ignore.
+        defaultLineupTemplate: { id: 'ltDefault', label: 'Should never be used', slots: [{ role: 'Bass', order: 1 }] },
+      };
+
+      const tmplB = {
+        id: 'f2',
+        label: 'Reception',
+        icon: 'party',
+        keyMoments: [],
+        defaultGenreSelection: [],
+        slots: [{ label: 'Reception', duration: 60, order: 1 }],
+        defaultLineupTemplate: null,
+      };
+
+      const fivePiece = { id: 'lt1', label: 'My five-piece', slots: [{ role: 'Sax', order: 1 }, { role: 'Drums', order: 2 }] };
+      const soloPianist = { id: 'lt2', label: 'Solo pianist', slots: [{ role: 'Piano', order: 1 }] };
+
+      it('creates no Lineup for an empty selections array ("Decide later"), even when the template declares a default', async () => {
+        primeLineupChain();
+        await repo.createWithPackageTemplates('u1', baseDto, [tmplA], false, undefined, []);
+        expect(prisma.lineup.create).not.toHaveBeenCalled();
+        expect(prisma.bookingBandChair.createMany).not.toHaveBeenCalled();
+        expect(prisma.lineupPackage.create).not.toHaveBeenCalled();
+      });
+
+      it('creates a Lineup from the selection, ignoring the template default entirely', async () => {
+        primeLineupChain();
+        const selections = [{ lineupTemplate: fivePiece, packageTemplateIds: ['f1'] }];
+        await repo.createWithPackageTemplates('u1', baseDto, [tmplA], false, undefined, selections);
+        expect(prisma.lineup.create).toHaveBeenCalledTimes(1);
+        expect(prisma.lineup.create).toHaveBeenCalledWith({ data: { userId: 'u1', bookingId: 'b1', label: 'My five-piece' } });
+        expect(prisma.lineupPackage.create).toHaveBeenCalledWith({ data: { userId: 'u1', lineupId: 'lu1', packageId: 'pkg1' } });
+        const chairData = prisma.bookingBandChair.createMany.mock.calls[0][0].data;
+        expect(chairData).toContainEqual({ userId: 'u1', bookingId: 'b1', lineupId: 'lu1', order: 1, role: 'Sax' });
+        expect(chairData).toContainEqual({ userId: 'u1', bookingId: 'b1', lineupId: 'lu1', order: 2, role: 'Drums' });
+      });
+
+      it('creates a Lineup with no segment links for an entry with empty packageTemplateIds (the package-less / standalone case)', async () => {
+        primeLineupChain();
+        const selections = [{ lineupTemplate: fivePiece, packageTemplateIds: [] }];
+        await repo.createWithPackageTemplates('u1', baseDto, [], false, undefined, selections);
+        expect(prisma.lineup.create).toHaveBeenCalledTimes(1);
+        expect(prisma.lineupPackage.create).not.toHaveBeenCalled();
+      });
+
+      it('handles two entries naming the same template (never deduped — the wire grouping is trusted) alongside a third naming a distinct one', async () => {
+        primeLineupChain();
+        const selections = [
+          { lineupTemplate: fivePiece, packageTemplateIds: ['f1'] },
+          { lineupTemplate: fivePiece, packageTemplateIds: ['f2'] },
+          { lineupTemplate: soloPianist, packageTemplateIds: [] },
+        ];
+        await repo.createWithPackageTemplates('u1', baseDto, [tmplA, tmplB], false, undefined, selections);
+        expect(prisma.lineup.create).toHaveBeenCalledTimes(3);
+        expect(prisma.lineup.create).toHaveBeenNthCalledWith(1, { data: { userId: 'u1', bookingId: 'b1', label: 'My five-piece' } });
+        expect(prisma.lineup.create).toHaveBeenNthCalledWith(2, { data: { userId: 'u1', bookingId: 'b1', label: 'My five-piece' } });
+        expect(prisma.lineup.create).toHaveBeenNthCalledWith(3, { data: { userId: 'u1', bookingId: 'b1', label: 'Solo pianist' } });
+        expect(prisma.lineupPackage.create).toHaveBeenCalledTimes(2);
+        expect(prisma.lineupPackage.create).toHaveBeenNthCalledWith(1, { data: { userId: 'u1', lineupId: 'lu1', packageId: 'pkg1' } });
+        expect(prisma.lineupPackage.create).toHaveBeenNthCalledWith(2, { data: { userId: 'u1', lineupId: 'lu2', packageId: 'pkg2' } });
+      });
+
+      it('ignores a packageTemplateId not among this booking\'s chosen templates rather than throwing', async () => {
+        primeLineupChain();
+        const selections = [{ lineupTemplate: fivePiece, packageTemplateIds: ['not-a-real-template'] }];
+        await expect(
+          repo.createWithPackageTemplates('u1', baseDto, [tmplA], false, undefined, selections),
+        ).resolves.toBeDefined();
+        expect(prisma.lineup.create).toHaveBeenCalledTimes(1);
+        expect(prisma.lineupPackage.create).not.toHaveBeenCalled();
       });
     });
   });

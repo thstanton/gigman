@@ -2,8 +2,9 @@ import type { Meta, StoryObj } from '@storybook/react-vite';
 import { useState } from 'react';
 import { expect, fn, userEvent, within } from 'storybook/test';
 import { PackagePicker } from './PackagePicker';
-import { packageTemplate as tmpl } from '@/test/factories';
-import type { PackageTemplate } from '@/types/api';
+import { EMPTY_LINEUP_CHOICES, setPackageLineupOverride, type LineupChoices } from './lineupChoices';
+import { packageTemplate as tmpl, lineupTemplate as lineup } from '@/test/factories';
+import type { LineupTemplate, PackageTemplate } from '@/types/api';
 
 const TEMPLATES: PackageTemplate[] = [
   tmpl({
@@ -14,24 +15,37 @@ const TEMPLATES: PackageTemplate[] = [
     ],
     defaultGenreSelection: ['Classical', 'Acoustic'],
     keyMoments: ['First kiss'],
+    defaultLineupTemplateId: 'l1',
   }),
   tmpl({ id: 't2', label: 'Evening Reception', category: 'WEDDING', icon: 'moon' }),
   tmpl({ id: 't3', label: 'Conference Day', category: 'CORPORATE', icon: 'briefcase' }),
 ];
 
-// Controlled harness mirroring the host (create/Builder) that owns the selection.
+const LINEUPS: LineupTemplate[] = [
+  lineup({ id: 'l1', label: 'My four-piece', slots: [{ id: 'l1-a', role: 'Sax', order: 0 }, { id: 'l1-b', role: 'Drums', order: 1 }] }),
+  lineup({ id: 'l2', label: 'Solo pianist', slots: [{ id: 'l2-a', role: 'Piano', order: 0 }] }),
+];
+
+// Controlled harness mirroring the host (create/Builder) that owns the selection AND the lineup
+// choices (#989) — a real host derives the latter via lineupChoices.ts's pure helpers, exactly
+// as this harness does with setPackageLineupOverride.
 function Harness({
   onToggle,
+  onPackageLineupChange,
   showMusic,
   templates = TEMPLATES,
+  lineupTemplates = [],
   initialSelected = [],
 }: {
   onToggle: (id: string) => void;
+  onPackageLineupChange?: (packageTemplateId: string, lineupTemplateId: string | null) => void;
   showMusic: boolean;
   templates?: PackageTemplate[];
+  lineupTemplates?: LineupTemplate[];
   initialSelected?: string[];
 }) {
   const [selected, setSelected] = useState<string[]>(initialSelected);
+  const [choices, setChoices] = useState<LineupChoices>(EMPTY_LINEUP_CHOICES);
   return (
     <PackagePicker
       templates={templates}
@@ -39,6 +53,12 @@ function Harness({
       selectedIds={selected}
       onToggle={(id) => { setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id])); onToggle(id); }}
       showMusic={showMusic}
+      lineupTemplates={lineupTemplates}
+      lineupChoices={choices}
+      onPackageLineupChange={(packageTemplateId, lineupTemplateId) => {
+        setChoices((c) => setPackageLineupOverride(c, packageTemplateId, lineupTemplateId));
+        onPackageLineupChange?.(packageTemplateId, lineupTemplateId);
+      }}
     />
   );
 }
@@ -46,12 +66,14 @@ function Harness({
 const meta: Meta<typeof PackagePicker> = {
   component: PackagePicker,
   tags: ['ai-generated'],
-  args: { onToggle: fn(), showMusic: true },
+  args: { onToggle: fn(), onPackageLineupChange: fn(), showMusic: true },
   render: (args) => (
     <Harness
       onToggle={args.onToggle}
+      onPackageLineupChange={args.onPackageLineupChange}
       showMusic={args.showMusic ?? true}
       templates={args.templates}
+      lineupTemplates={args.lineupTemplates}
       initialSelected={args.selectedIds}
     />
   ),
@@ -75,23 +97,6 @@ export const Grouping: Story = {
   },
 };
 
-export const SelectedOtherIsNeverHidden: Story = {
-  name: 'A selected non-matching template is visible without expanding "Other packages"',
-  // The invariant behind #755: creating a template inline from the New Booking form auto-selects
-  // it, and an off-category one lands in "Other". If the group stayed collapsed the package would
-  // be applied to the booking with nothing on screen to say so.
-  args: { selectedIds: ['t3'] },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    // Visible immediately — no click on the "Other packages" toggle first.
-    const conference = canvas.getByRole('button', { name: 'Conference Day' });
-    await expect(conference).toBeVisible();
-    await expect(conference).toHaveAttribute('aria-pressed', 'true');
-    // And the group reads as expanded.
-    await expect(canvas.getByRole('button', { name: /▾ Other packages \(1\)/i })).toBeVisible();
-  },
-};
-
 export const EmptyLibrary: Story = {
   name: 'Empty library reads as "not yet", not as a dead end',
   args: { templates: [] },
@@ -102,21 +107,37 @@ export const EmptyLibrary: Story = {
 };
 
 export const Multiselect: Story = {
-  name: 'Multiselect: clicking chips toggles selection on and off',
+  name: 'Multiselect: clicking a chip lifts it into a block; clicking the block returns it to a chip',
+  // #989: selecting a template swaps its underlying element (chip -> block header), so each
+  // assertion re-queries by accessible name rather than reusing a pre-click element reference.
   play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement);
-    const ceremony = canvas.getByRole('button', { name: 'Wedding Ceremony' });
-    await userEvent.click(ceremony);
-    await expect(ceremony).toHaveAttribute('aria-pressed', 'true');
+    await userEvent.click(canvas.getByRole('button', { name: 'Wedding Ceremony' }));
+    await expect(canvas.getByRole('button', { name: 'Wedding Ceremony' })).toHaveAttribute('aria-pressed', 'true');
     await expect(args.onToggle).toHaveBeenCalledWith('t1');
 
-    const evening = canvas.getByRole('button', { name: 'Evening Reception' });
-    await userEvent.click(evening);
-    await expect(evening).toHaveAttribute('aria-pressed', 'true');
+    await userEvent.click(canvas.getByRole('button', { name: 'Evening Reception' }));
+    await expect(canvas.getByRole('button', { name: 'Evening Reception' })).toHaveAttribute('aria-pressed', 'true');
 
-    // Clicking again deselects.
-    await userEvent.click(ceremony);
-    await expect(ceremony).toHaveAttribute('aria-pressed', 'false');
+    // Clicking the block's own header returns it to an unselected chip.
+    await userEvent.click(canvas.getByRole('button', { name: 'Wedding Ceremony' }));
+    await expect(canvas.getByRole('button', { name: 'Wedding Ceremony' })).toHaveAttribute('aria-pressed', 'false');
+  },
+};
+
+// #982's resolution: "a selected package leaves the chip row and becomes a block", always
+// visible regardless of its event-type category — there is no "force this group open" case left
+// to prove, since a selected template is never chip-grouped at all.
+export const SelectedTemplateBecomesABlock: Story = {
+  name: 'A selected non-matching template becomes a block, entirely outside the chip grouping',
+  args: { selectedIds: ['t3'] },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const conference = canvas.getByRole('button', { name: 'Conference Day' });
+    await expect(conference).toBeVisible();
+    await expect(conference).toHaveAttribute('aria-pressed', 'true');
+    // No "Other packages" toggle at all — its only non-matching template is now a block.
+    await expect(canvas.queryByRole('button', { name: /Other packages/i })).toBeNull();
   },
 };
 
@@ -140,5 +161,58 @@ export const PreviewHidesMusicWhenOff: Story = {
     await userEvent.click(canvas.getByRole('button', { name: /Preview Wedding Ceremony/i }));
     await expect(canvas.getByText('Processional')).toBeVisible();
     await expect(canvas.queryByText(/Genres the client can request songs from/i)).toBeNull();
+  },
+};
+
+// #982's resolution: "Sets are always shown on a selected block — the block is the expanded
+// chip, so nothing is lost by selecting." No eye click needed, unlike an unselected chip.
+export const SelectedBlockAlwaysShowsItsContent: Story = {
+  name: 'A selected block shows its sets and music summary without an eye click',
+  args: { selectedIds: ['t1'] },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByText('Processional')).toBeVisible();
+    await expect(canvas.getByText(/Genres the client can request songs from/i)).toBeVisible();
+    // And there is no eye/preview control on the block itself.
+    await expect(canvas.queryByRole('button', { name: /Preview Wedding Ceremony/i })).toBeNull();
+  },
+};
+
+// Story 39 guard (#989's AC): a musician with no lineup templates sees byte-for-byte what the
+// picker rendered before #989 — no "Who plays this?" select on any block, selected or not.
+export const NoLineupTemplatesRendersUnchanged: Story = {
+  name: 'Story 39 guard: no lineup templates -> no select on any block (ADR-0081 §5 constraint 3)',
+  args: { selectedIds: ['t1'], lineupTemplates: [] },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByRole('button', { name: 'Wedding Ceremony' })).toBeVisible();
+    await expect(canvas.queryByText('Who plays this?')).toBeNull();
+    await expect(canvas.queryByRole('combobox')).toBeNull();
+  },
+};
+
+// The primary #989 happy path: a selected block with lineup templates present shows the "Who
+// plays this?" select, pre-filled from the template's own defaultLineupTemplateId, and reports
+// both an override and an explicit "Decide later" through the same callback.
+export const LineupSelectOnASelectedBlock: Story = {
+  name: 'Lineup select is pre-filled from the template default, and reports overrides + "Decide later"',
+  args: { selectedIds: ['t1'], lineupTemplates: LINEUPS },
+  play: async ({ args, canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByText('Who plays this?')).toBeVisible();
+    // Wedding Ceremony's defaultLineupTemplateId is 'l1' — pre-filled without the musician touching it.
+    await expect(canvas.getByRole('combobox', { name: 'Who plays this?' })).toHaveTextContent('My four-piece');
+
+    // Radix Select portals its listbox to document.body, outside canvasElement.
+    const body = within(canvasElement.ownerDocument.body);
+    await userEvent.click(canvas.getByRole('combobox', { name: 'Who plays this?' }));
+    await userEvent.click(body.getByRole('option', { name: 'Solo pianist' }));
+    await expect(args.onPackageLineupChange).toHaveBeenCalledWith('t1', 'l2');
+    await expect(canvas.getByRole('combobox', { name: 'Who plays this?' })).toHaveTextContent('Solo pianist');
+
+    await userEvent.click(canvas.getByRole('combobox', { name: 'Who plays this?' }));
+    await userEvent.click(body.getByRole('option', { name: 'Decide later' }));
+    await expect(args.onPackageLineupChange).toHaveBeenCalledWith('t1', null);
+    await expect(canvas.getByRole('combobox', { name: 'Who plays this?' })).toHaveTextContent('Decide later');
   },
 };

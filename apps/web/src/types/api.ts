@@ -477,6 +477,17 @@ export interface UpdateSetInput {
   label?: string | null;
 }
 
+/** #989: one entry per Lineup the musician declared at create time. Three states on
+ *  `CreateBookingInput.lineups`, and the third must not collapse into the first: omitted —
+ *  apply each chosen package template's own defaultLineupTemplateId; [] — "Decide later", apply
+ *  nothing; one-or-more entries — apply exactly those, superseding every template default
+ *  including ones left un-mentioned. Empty `packageTemplateIds` links to no segments (the
+ *  package-less booking, or an additional band with nothing assigned yet). */
+export interface BookingLineupSelectionInput {
+  lineupTemplateId: string;
+  packageTemplateIds: string[];
+}
+
 export interface CreateBookingInput {
   eventType: EventType;
   date: string;
@@ -494,6 +505,7 @@ export interface CreateBookingInput {
   checklistItems: ChecklistDefaultItem[];
   seriesId?: string;
   newSeries?: { label: string };
+  lineups?: BookingLineupSelectionInput[];
 }
 
 export interface UpdateBookingInput {

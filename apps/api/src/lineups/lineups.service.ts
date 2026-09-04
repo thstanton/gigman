@@ -17,6 +17,13 @@ export class LineupsService {
     return this.repo.findOne(userId, id);
   }
 
+  // Used by BookingsService to resolve the `lineups[].lineupTemplateId` entries a booking create
+  // declares (#989) — scoped to userId, so a foreign id silently drops rather than 404ing (mirrors
+  // BookingsRepository.findPackageTemplates' lenient filter-not-found behavior).
+  findByIds(userId: string, ids: string[]) {
+    return this.repo.findByIds(userId, ids);
+  }
+
   create(userId: string, dto: CreateLineupDto) {
     return this.repo.create(userId, dto);
   }
